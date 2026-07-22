@@ -1,0 +1,25 @@
+{
+  "method": "5-fold OOF Laplace on train predictions",
+  "empirical": {
+    "APPROVED|fee": 0.9595,
+    "APPROVED|nofee": 0.9697,
+    "DENIED|fee": 0.9391,
+    "DENIED|nofee": 0.9559,
+    "NEEDS_REVIEW|fee": 0.4708,
+    "NEEDS_REVIEW|nofee": 0.5565
+  },
+  "review_reliability": {
+    "0": 0.9804,
+    "1": 0.432,
+    "2": 0.5355,
+    "3": 0.5,
+    "4": 0.4286,
+    "5": 0.4545,
+    "6": 0.3333,
+    "7": 0.4375,
+    "8": 0.125,
+    "9": 0.3333
+  },
+  "risk_unobserved": 0.2308,
+  "n_cases": 1000
+}
