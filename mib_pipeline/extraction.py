@@ -1550,7 +1550,15 @@ class VisibleEvidenceExtractor:
     def _fee_receipt_value(text: str) -> str | None:
         """Normalize one receipt-row value without weakening global parsing."""
 
-        value_key = _ocr_key(text)
+        stripped = " ".join(text.strip().split())
+        value_key = _ocr_key(stripped)
+        # RapidOCR sometimes concatenates the status row into one token.
+        glued = re.search(
+            r"(?:fee)?status[_:\s-]*(paid|waived|unpaid)",
+            stripped.casefold(),
+        )
+        if glued is not None:
+            return glued.group(1)
         # Prefer waived repairs before the paid bowl/descender repair — a
         # damaged ``waived`` must not collapse into the ``paid`` prior.
         if re.fullmatch(r"w[a4][il1]ve?[d]", value_key) or re.fullmatch(
@@ -1563,12 +1571,18 @@ class VisibleEvidenceExtractor:
         # still needs agreement across three independently thresholded views.
         if re.fullmatch(r"[pnm][ao][i1l][dcl]", value_key):
             return "paid"
-        return _canonical_vocabulary_value(
-            text,
-            FEE_VALUES,
-            cutoff=0.62,
-            margin=0.06,
-        )
+        # Only near-literal unpaid forms — ``unpaicd`` junk must not win over
+        # amount/waiver inference on the same receipt.
+        if re.fullmatch(r"unpaid", value_key) or re.fullmatch(
+            r"unp[ao][i1l]d",
+            value_key,
+        ):
+            return "unpaid"
+        # No broad fuzzy vocabulary here — short OCR junk like ``unpaicd``
+        # otherwise collapses into ``unpaid`` and beats amount/waiver inference.
+        if value_key in FEE_VALUES:
+            return value_key
+        return None
 
     @classmethod
     def _fee_receipt_line_value(cls, text: str) -> str | None:
@@ -1635,6 +1649,8 @@ class VisibleEvidenceExtractor:
                 for line in lines[:8]
             ),
             default=0.0,
+        ) < 0.64 and self._fee_receipt_heading_similarity(
+            " ".join(line.text for line in lines[:8])
         ) < 0.64:
             return None
 
@@ -1803,6 +1819,10 @@ class VisibleEvidenceExtractor:
         helper is called and always wins.
         """
 
+        heading_blob = _ocr_key(" ".join(line.text for line in lines[:8]))
+        # Keep only the title-ish prefix when OCR appends case IDs / banners.
+        title_blob = re.sub(r"mib\d{6}.*$", "", heading_blob)
+        title_blob = re.sub(r"eyesonly.*$", "", title_blob)
         if not any(
             (
                 _ocr_key(line.text) == _ocr_key("MIB Fee Receipt")
@@ -1815,6 +1835,17 @@ class VisibleEvidenceExtractor:
             )
             and line.confidence >= self._minimum_legible_confidence
             for line in lines[:8]
+        ) and not (
+            difflib.SequenceMatcher(
+                None,
+                title_blob or heading_blob,
+                "mibfeereceipt",
+            ).ratio()
+            >= 0.78
+            or (
+                "fee" in heading_blob
+                and "receipt" in heading_blob
+            )
         ):
             return None
 
@@ -1931,7 +1962,10 @@ class VisibleEvidenceExtractor:
             return value, supporting
 
         amount_row = exact_row("Amount", ("$809.00", "$0.00"))
+        # Tess often drops "Code" from the waiver-row label.
         waiver_row = exact_row("Waiver Code", ("N/A", "DIP-WAIVER"))
+        if waiver_row is None:
+            waiver_row = exact_row("Waiver", ("N/A", "DIP-WAIVER"))
         if amount_row is None or waiver_row is None:
             return None
         amount, amount_lines = amount_row
@@ -1975,11 +2009,14 @@ class VisibleEvidenceExtractor:
         if rendered_case.case_id is None:
             return ()
         linked = CaseLinker().link(rendered_case.case_id, baseline)
-        if linked.unresolved or linked.active_applicant is None:
+        if linked.unresolved:
             return ()
         resolved = EvidencePrecedenceResolver().resolve(linked)
         if resolved.value("fee_status") is not None:
             return ()
+        # Fee-status recovery is case-scoped.  Missing active-applicant linkage
+        # must not block a clearly visible receipt for this exact case ID.
+        active_applicant = linked.active_applicant or ""
         fee_evidence = tuple(
             candidate
             for candidate in baseline
@@ -2001,13 +2038,21 @@ class VisibleEvidenceExtractor:
         routed_pages: list[tuple[RenderedPage, set[str]]] = []
         for page in rendered_case.pages:
             lines = routing_lines.get(page.index, ())
-            if max(
+            heading_score = max(
                 (
                     self._fee_receipt_heading_similarity(line.text)
                     for line in lines[:8]
                 ),
                 default=0.0,
-            ) < 0.64:
+            )
+            joined_heading = " ".join(line.text for line in lines[:8])
+            joined_score = self._fee_receipt_heading_similarity(joined_heading)
+            head_key = _ocr_key(joined_heading)
+            if (
+                heading_score < 0.64
+                and joined_score < 0.64
+                and not ("fee" in head_key and "receipt" in head_key)
+            ):
                 continue
             visible_case_ids = {
                 value
@@ -2048,7 +2093,7 @@ class VisibleEvidenceExtractor:
             page=page,
             page_pixels=source_image,
             case_id=rendered_case.case_id,
-            active_applicant=linked.active_applicant,
+            active_applicant=active_applicant,
         )
         if redundant_candidate is not None:
             return (redundant_candidate,)
@@ -2070,7 +2115,7 @@ class VisibleEvidenceExtractor:
             page=page,
             page_pixels=source_image,
             case_id=rendered_case.case_id,
-            active_applicant=linked.active_applicant,
+            active_applicant=active_applicant,
             view_cue="primary_fee_receipt_view",
         )
         if primary_candidate is not None:
@@ -2086,7 +2131,7 @@ class VisibleEvidenceExtractor:
                 page_pixels=crop_pixels,
                 engine=engine,
                 case_id=rendered_case.case_id,
-                active_applicant=linked.active_applicant,
+                active_applicant=active_applicant,
             )
             if candidate is not None:
                 pass_candidates.append(candidate)
@@ -2116,7 +2161,7 @@ class VisibleEvidenceExtractor:
                 ),
                 visual_cues=("threshold_consensus_fee_receipt",),
                 case_id_hint=rendered_case.case_id,
-                applicant_hint=linked.active_applicant,
+                applicant_hint=active_applicant or None,
             ),
         )
 
@@ -3450,6 +3495,177 @@ class VisibleEvidenceExtractor:
             routing_lines,
         )
 
+    def _split_intake_label_value_evidence(
+        self,
+        rendered_case: RenderedCase,
+        baseline: tuple[CandidateEvidence, ...],
+        routing_lines: dict[int, tuple[OcrLine, ...]],
+    ) -> tuple[CandidateEvidence, ...]:
+        """Recover intake fields when OCR splits ``Label`` / ``Date`` / value.
+
+        Tip-adapted from cross-page date resolution: only fires on intake-like
+        pages, only for fields still unresolved, and only with an explicit
+        label token sequence (never a bare date/purpose guess).
+        """
+
+        from .resolution import CaseLinker, EvidencePrecedenceResolver
+
+        resolved = EvidencePrecedenceResolver().resolve(
+            CaseLinker().link(rendered_case.case_id, baseline)
+        )
+        needed = {
+            field_name
+            for field_name in ("arrival_date", "declared_purpose", "fee_status")
+            if resolved.value(field_name) is None
+        }
+        if not needed:
+            return ()
+
+        recovered: list[CandidateEvidence] = []
+        for page in rendered_case.pages:
+            lines = routing_lines.get(page.index, ())
+            if not lines:
+                continue
+            heading_type = self._visible_page_heading_type(lines)
+            if heading_type is not EvidenceType.INTAKE_FORM:
+                continue
+            head_blob = " ".join(line.text for line in lines[:8]).casefold()
+            # Fee-receipt pages are often typed as intake when the title OCR is
+            # damaged; keep fee recovery on the dedicated receipt paths there.
+            looks_like_fee_receipt = (
+                "fee receipt" in head_blob
+                or ("fee" in head_blob and "receipt" in head_blob)
+            )
+            is_primary_intake = (
+                "i-8090" in head_blob
+                or "i 8090" in head_blob
+                or "work authorization" in head_blob
+                or "primary intake" in head_blob
+            )
+            if not is_primary_intake and not looks_like_fee_receipt:
+                continue
+            texts = [line.text for line in lines]
+            for index, line in enumerate(lines):
+                folded = " ".join(line.text.casefold().split())
+                # Arrival / Date / 2026-..
+                if (
+                    is_primary_intake
+                    and "arrival_date" in needed
+                    and re.fullmatch(r"arrival", folded)
+                    and index + 2 < len(lines)
+                    and re.fullmatch(
+                        r"dates?",
+                        " ".join(lines[index + 1].text.casefold().split()),
+                    )
+                ):
+                    raw = lines[index + 2].text
+                    value = self._normalize_value("arrival_date", raw)
+                    if value is not None:
+                        recovered.append(
+                            CandidateEvidence(
+                                field_name="arrival_date",
+                                value=value,
+                                evidence_type=EvidenceType.INTAKE_FORM,
+                                page_index=page.index,
+                                box=line.box.union(lines[index + 2].box),
+                                legible=True,
+                                superseded=False,
+                                ocr_confidence=min(
+                                    line.confidence,
+                                    lines[index + 1].confidence,
+                                    lines[index + 2].confidence,
+                                    0.55,
+                                ),
+                                visual_cues=("split_intake_label_value",),
+                                case_id_hint=rendered_case.case_id,
+                                applicant_hint=None,
+                            )
+                        )
+                        needed.discard("arrival_date")
+                # Declared / Purpose / <purpose tokens>
+                if (
+                    is_primary_intake
+                    and "declared_purpose" in needed
+                    and re.fullmatch(r"declared", folded)
+                    and index + 2 < len(lines)
+                    and re.fullmatch(
+                        r"purpose",
+                        " ".join(lines[index + 1].text.casefold().split()),
+                    )
+                ):
+                    raw = " ".join(
+                        lines[j].text
+                        for j in range(index + 2, min(index + 5, len(lines)))
+                    )
+                    value = self._normalize_value("declared_purpose", raw)
+                    if value is not None:
+                        recovered.append(
+                            CandidateEvidence(
+                                field_name="declared_purpose",
+                                value=value,
+                                evidence_type=EvidenceType.INTAKE_FORM,
+                                page_index=page.index,
+                                box=line.box.union(lines[index + 2].box),
+                                legible=True,
+                                superseded=False,
+                                ocr_confidence=min(
+                                    line.confidence,
+                                    lines[index + 1].confidence,
+                                    lines[index + 2].confidence,
+                                    0.55,
+                                ),
+                                visual_cues=("split_intake_label_value",),
+                                case_id_hint=rendered_case.case_id,
+                                applicant_hint=None,
+                            )
+                        )
+                        needed.discard("declared_purpose")
+                # Fee / Status / paid|waived — only on primary intake pages.
+                # Receipt pages use the redundant amount/waiver path instead.
+                if is_primary_intake and "fee_status" in needed:
+                    fee_val = None
+                    rep = line
+                    if self._fee_receipt_line_value(line.text) is not None:
+                        fee_val = self._fee_receipt_line_value(line.text)
+                    elif (
+                        re.fullmatch(r"fee", folded)
+                        and index + 2 < len(lines)
+                        and re.fullmatch(
+                            r"status",
+                            " ".join(lines[index + 1].text.casefold().split()),
+                        )
+                    ):
+                        fee_val = self._fee_receipt_value(lines[index + 2].text)
+                        rep = lines[index + 2]
+                    elif (
+                        re.fullmatch(r"status", folded)
+                        and index + 1 < len(lines)
+                    ):
+                        fee_val = self._fee_receipt_value(lines[index + 1].text)
+                        rep = lines[index + 1]
+                    else:
+                        fee_val = self._fee_receipt_value(line.text)
+                    if fee_val in {"paid", "waived", "unpaid"}:
+                        recovered.append(
+                            CandidateEvidence(
+                                field_name="fee_status",
+                                value=fee_val,
+                                evidence_type=EvidenceType.INTAKE_FORM,
+                                page_index=page.index,
+                                box=rep.box,
+                                legible=True,
+                                superseded=False,
+                                ocr_confidence=max(rep.confidence, 0.45),
+                                visual_cues=("split_intake_fee_status",),
+                                case_id_hint=rendered_case.case_id,
+                                applicant_hint=None,
+                            )
+                        )
+                        needed.discard("fee_status")
+            if not needed:
+                break
+        return tuple(recovered)
+
     def _retry_target_page(
         self,
         rendered_case: RenderedCase,
@@ -4410,6 +4626,14 @@ class VisibleEvidenceExtractor:
             baseline = tuple(candidates)
         candidates.extend(
             self._biometric_clean_none_evidence(
+                rendered_case,
+                baseline,
+                routing_lines,
+            )
+        )
+        baseline = tuple(candidates)
+        candidates.extend(
+            self._split_intake_label_value_evidence(
                 rendered_case,
                 baseline,
                 routing_lines,
