@@ -2,54 +2,41 @@
 
 ## Approach
 
-Runtime vendors the public **render-first** offline pipeline from strobl
-(`https://github.com/strobl/mib-doc-solution`, MIT), with attribution in
-`ATTRIBUTION.md`.
+We **fork** strobl’s public render-first offline pipeline (MIT) and add owned
+layers documented in `CONTRIBUTIONS.md` / `ATTRIBUTION.md`. The goal is to
+**beat** that baseline on held-out labels — not to resubmit it unchanged.
 
-Flow:
+Base stack:
 
-1. Rasterize every page (`pypdfium2`) — embedded PDF text is diagnostic only.
-2. Tesseract sparse OCR with layout/label recovery and bounded retries.
-3. Independent RapidOCR fill for unresolved fields only (never a second vote).
-4. Evidence resolution with source authority, strike-through, and conflicts.
-5. Identity-free adjudication from `FIELD_MANUAL.md`, plus frozen review
-   recovery heads that never invent silent risk.
-6. Confidence from pinned isotonic / output recalibration artifacts.
+1. Rasterize pages (`pypdfium2`); embedded text is diagnostic only.
+2. Tesseract sparse OCR + bounded retries.
+3. RapidOCR fill for unresolved fields only.
+4. Evidence resolution (authority, strike-through, conflicts).
+5. Identity-free field-manual adjudication + frozen recovery heads.
+6. Pinned confidence recalibration.
 
-## Leaderboard strategy (anti-overfit)
+Owned extensions:
 
-We optimize for **private-label generalization**, not train-hillclimbing.
+- Hardened fee/purpose OCR (fuzzy receipt headings, waived repair, fee cells).
+- Biometric clean-risk recovery (explicit `none` only from a clean B-13 flags row).
+- Anti-FA gate on statistical `REVIEW→APPROVED` (fee must be policy-proven).
 
-- **False approvals are toxic** (−4 raw each). We keep **FA = 0** on train even
-  when that leaves true `APPROVED` cases in `NEEDS_REVIEW` (partial credit).
-- We **do not** promote complete-looking `NEEDS_REVIEW` rows to `APPROVED`
-  based on serialized `risk_flags=none`. That string is often a schema default,
-  not a verified biometric observation — promoting it creates invisible-stamp
-  false approvals on held-out data.
-- No case-ID logic, no validation-label lookups, no per-PDF patches.
-- Rules are policy/evidence based so they transfer to validation and the
-  post-close private test (which also audits code).
+## Leaderboard / anti-overfit
 
-## Local train result (1,000 labeled PDFs)
+- Optimize for private validation labels + post-close private test / code audit.
+- Keep **FA = 0** preferred over train-hillclimbing approvals.
+- No case-ID logic, no validation-label copies, no silent-risk → APPROVED unlocks.
 
-| Build | Total | FA | Extr | Cls | Cal |
-|------:|------:|---:|-----:|----:|----:|
-| prior heuristic | ~122.95 | 0 | ~43 | ~64 | ~16 |
-| **this submission (strobl-vendored)** | **130.26** | **0** | **44.84** | **68.44** | **16.97** |
+## Local train reference
 
-Confusion highlights: 117 true `APPROVED` → `NEEDS_REVIEW` (conservative),
-47 true `DENIED` → `NEEDS_REVIEW` (mostly missed risk/fee evidence), **0**
-`DENIED` → `APPROVED`.
+| Build | Total | FA |
+|------:|------:|---:|
+| Our prior heuristic | ~122.95 | 0 |
+| Upstream strobl (reproduced) | **130.26** | **0** |
+| This fork (owned layers) | measuring vs upstream on same split | target ≥130.26, FA=0 |
 
 ## Failure modes / next week
 
-- Invisible denial stamps (especially `biohazard_red`) remain unreadable by
-  OCR; correct behavior is `NEEDS_REVIEW`, not a guessed approval.
-- Fee status sometimes absent from visible pixels; we refuse hidden-text fees.
-- Further safe gains: better **visible** risk/fee localization, then
-  re-adjudicate — never silent risk → `APPROVED`.
-
-## Docker
-
-`Dockerfile` matches the offline contract (`run.sh` → `solution.py`,
-`--network none`, CPU-only, hashed `requirements.lock`).
+Invisible denial stamps remain the hard ceiling for OCR-only systems. Further
+owned work targets visible risk/fee recovery and re-adjudication when those
+facts are actually observed — never inventing risk clearance.
