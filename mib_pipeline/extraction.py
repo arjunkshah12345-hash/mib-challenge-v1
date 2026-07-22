@@ -3230,7 +3230,12 @@ class VisibleEvidenceExtractor:
 
     @classmethod
     def _line_looks_like_clean_risk(cls, text: str) -> bool:
-        """True when a biometric risk row visibly asserts a clean/none result."""
+        """True when a biometric risk row visibly asserts a clean/none result.
+
+        Bare ``flags:`` labels do **not** count — the clean token must appear
+        on the same line (adjacent-line binding lives in
+        ``_biometric_flags_row_evidence``).
+        """
 
         folded = " ".join(text.casefold().split())
         if not folded:
@@ -3249,7 +3254,7 @@ class VisibleEvidenceExtractor:
             return True
         if re.fullmatch(
             r"(?:observed\s+)?(?:risk\s+)?flags?\s*[:#.=_-]?\s*"
-            r"(?:none|clear|clean|nil|n\/?a|no|—|-|–)?",
+            r"(?:none|clear|clean|nil|n\/?a|no|—|-|–)",
             folded,
         ):
             return True
@@ -3257,18 +3262,45 @@ class VisibleEvidenceExtractor:
             re.search(r"\b(?:no\s+disqualifying|no\s+risk)\b", folded)
         )
 
-    def _biometric_clean_none_evidence(
+    @classmethod
+    def _flags_label_line(cls, text: str) -> bool:
+        """True when a line is only the observed-flags label (value elsewhere)."""
+
+        folded = " ".join(text.casefold().split())
+        return bool(
+            re.fullmatch(
+                r"(?:observed\s+)?(?:risk\s+)?flags?\s*[:#.=_-]?\s*",
+                folded,
+            )
+        )
+
+    @classmethod
+    def _parse_flags_row_value(cls, text: str) -> str | None:
+        """Parse a flags-row value into ``none`` or a pipe-joined risk set."""
+
+        folded = " ".join(text.casefold().split())
+        if not folded:
+            return None
+        if re.fullmatch(
+            r"(?:none|clear|clean|nil|n\/?a|no|no\s+flags?|not\s+observed|—|-|–)",
+            folded,
+        ):
+            return "none"
+        flags = set(cls._risk_flags_from_text(text))
+        flags.update(cls._fuzzy_risk_flags_from_text(text))
+        if re.search(r"\billegible\b", text, re.I):
+            flags.add("illegible_biometrics")
+        if flags:
+            return "|".join(sorted(flags))
+        return None
+
+    def _biometric_flags_row_evidence(
         self,
         rendered_case: RenderedCase,
         baseline: tuple[CandidateEvidence, ...],
         routing_lines: dict[int, tuple[OcrLine, ...]],
     ) -> tuple[CandidateEvidence, ...]:
-        """Emit explicit ``none`` when a B-13 page shows a clean flags row.
-
-        Silent disqualifiers must stay unresolved.  This path only fires when
-        a biometric/B-13 page is present for the active case, no positive risk
-        phrase is visible on that page, and the flags row itself reads clean.
-        """
+        """Bind B-13 ``flags:`` labels to same-line or next-line values."""
 
         from .resolution import CaseLinker, EvidencePrecedenceResolver
 
@@ -3291,7 +3323,7 @@ class VisibleEvidenceExtractor:
                         _ocr_key(line.text),
                         "formb13biometricscanslip",
                     ).ratio()
-                    for line in lines[:6]
+                    for line in lines[:8]
                 ),
                 default=0.0,
             )
@@ -3310,30 +3342,91 @@ class VisibleEvidenceExtractor:
             if page_case_ids and rendered_case.case_id not in page_case_ids:
                 continue
 
-            positive: set[str] = set()
-            clean_line: OcrLine | None = None
-            for line in lines:
-                positive.update(self._risk_flags_from_text(line.text))
-                positive.update(self._fuzzy_risk_flags_from_text(line.text))
-                if clean_line is None and self._line_looks_like_clean_risk(line.text):
-                    clean_line = line
-            if positive or clean_line is None:
-                continue
+            chosen: tuple[str, OcrLine, tuple[str, ...]] | None = None
+            for index, line in enumerate(lines):
+                if self._line_looks_like_clean_risk(line.text):
+                    chosen = (
+                        "none",
+                        line,
+                        ("biometric_clean_flags_row", "explicit_risk_none"),
+                    )
+                    break
+                same_line_raw = None
+                if re.search(
+                    r"(?:observed\s+)?(?:risk\s+)?flags?\s*[:#.=_-]",
+                    line.text,
+                    re.I,
+                ):
+                    same_line_raw = re.sub(
+                        r"^(?:observed\s+)?(?:risk\s+)?flags?\s*[:#.=_-]\s*",
+                        "",
+                        line.text,
+                        count=1,
+                        flags=re.I,
+                    )
+                if same_line_raw is not None:
+                    parsed = self._parse_flags_row_value(same_line_raw)
+                    if parsed is not None:
+                        cues = (
+                            ("biometric_clean_flags_row", "explicit_risk_none")
+                            if parsed == "none"
+                            else ("flags_row_same_line_value",)
+                        )
+                        chosen = (parsed, line, cues)
+                        break
+                if self._flags_label_line(line.text) and index + 1 < len(lines):
+                    nxt = lines[index + 1]
+                    parsed = self._parse_flags_row_value(nxt.text)
+                    if parsed is None:
+                        continue
+                    if parsed == "none":
+                        chosen = (
+                            parsed,
+                            line,
+                            (
+                                "biometric_clean_flags_row",
+                                "explicit_risk_none",
+                                "flags_row_adjacent_value",
+                            ),
+                        )
+                    else:
+                        chosen = (
+                            parsed,
+                            nxt,
+                            ("flags_row_adjacent_value",),
+                        )
+                    break
+            if chosen is None:
+                positive: set[str] = set()
+                hit: OcrLine | None = None
+                for line in lines:
+                    flags = set(self._risk_flags_from_text(line.text))
+                    flags.update(self._fuzzy_risk_flags_from_text(line.text))
+                    if re.search(r"\billegible\b", line.text, re.I):
+                        flags.add("illegible_biometrics")
+                    if flags:
+                        positive.update(flags)
+                        hit = line
+                if not positive or hit is None:
+                    continue
+                chosen = (
+                    "|".join(sorted(positive)),
+                    hit,
+                    ("biometric_page_risk_phrase",),
+                )
 
+            value, representative, cues = chosen
             recovered.append(
                 CandidateEvidence(
                     field_name="risk_flags",
-                    value="none",
+                    value=value,
                     evidence_type=EvidenceType.BIOMETRIC_SLIP,
                     page_index=page.index,
-                    box=clean_line.box,
+                    box=representative.box,
                     legible=True,
                     superseded=False,
-                    ocr_confidence=max(clean_line.confidence, 0.45),
-                    visual_cues=(
-                        "biometric_clean_flags_row",
-                        "explicit_risk_none",
-                    ),
+                    ocr_confidence=max(representative.confidence, 0.45),
+                    visual_cues=cues,
                     case_id_hint=rendered_case.case_id,
                     applicant_hint=None,
                 )
@@ -3342,6 +3435,20 @@ class VisibleEvidenceExtractor:
         if len({item.page_index for item in recovered}) != 1:
             return ()
         return (max(recovered, key=lambda item: item.ocr_confidence),)
+
+    def _biometric_clean_none_evidence(
+        self,
+        rendered_case: RenderedCase,
+        baseline: tuple[CandidateEvidence, ...],
+        routing_lines: dict[int, tuple[OcrLine, ...]],
+    ) -> tuple[CandidateEvidence, ...]:
+        """Backward-compatible alias for ``_biometric_flags_row_evidence``."""
+
+        return self._biometric_flags_row_evidence(
+            rendered_case,
+            baseline,
+            routing_lines,
+        )
 
     def _retry_target_page(
         self,

@@ -12,13 +12,15 @@ approximately **130.26/150 with 0 catastrophic false approvals** on the public
 
 ## Our work
 
-We do **not** submit upstream unchanged. See `CONTRIBUTIONS.md` for the owned
-layers (fee/purpose OCR hardening, biometric clean-risk recovery, and an
-anti-false-approval gate on statistical approval heads).
+We do **not** submit upstream unchanged. See `CONTRIBUTIONS.md` for owned
+layers:
+
+- Fee/purpose OCR hardening
+- B-13 flags-row binder (adjacent-line `none` / positive risk recovery)
+- Clean-packet approval head (requires explicit biometric `none` + proven fee)
+
+We do **not** use embedded PDF answer-key spans, case-ID tables, or silent
+risk→approve unlocks.
 
 Prior original heuristic work in this org topped out near **~122.95/150, FA=0**
 before adopting the render-first stack as a base to extend.
-
-All validation packaging, Docker contract glue, and owned heads are our
-responsibility. Organizer anti-cheat rules still apply: no case-ID answers,
-no private-label leakage.

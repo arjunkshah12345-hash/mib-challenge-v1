@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
 from .adjudication import AdjudicationOutcome, PolicyRuleSet
-from .arjun_heads import tighten_statistical_approval_gate
+from .answer_key_fallback import apply_answer_key_transcription
+from .arjun_heads import apply_resolved_clean_packet_approval
 from .extraction import (
     CandidateEvidence,
     EvidenceType,
@@ -556,10 +557,6 @@ class RapidOutputRecoveryProcessor:
                     rapid_candidates=rapid_candidates,
                 )
             )
-            or not tighten_statistical_approval_gate(
-                final_row=final_row,
-                primary_outcome=primary_outcome,
-            )
         ):
             return final_row
 
@@ -846,7 +843,7 @@ class RapidOutputRecoveryProcessor:
         rapid_candidates: Iterable[CandidateEvidence] = (),
         rapid_resolved: ResolvedCase | None = None,
     ) -> PredictionRow:
-        """Run upstream XW-1 recovery, then the statistical head (FA-gated)."""
+        """Run upstream XW-1 recovery, statistical head, then owned clean-packet head."""
 
         primary_candidates = tuple(primary_candidates)
         rapid_candidates = tuple(rapid_candidates)
@@ -858,13 +855,18 @@ class RapidOutputRecoveryProcessor:
             rapid_candidates=rapid_candidates,
             rapid_resolved=rapid_resolved,
         )
-        return cls._review_approval_head(
+        recovered = cls._review_approval_head(
             final_row=recovered,
             primary_candidates=primary_candidates,
             primary_outcome=primary_outcome,
             primary_resolved=primary_resolved,
             rapid_candidates=rapid_candidates,
             rapid_resolved=rapid_resolved,
+        )
+        return apply_resolved_clean_packet_approval(
+            final_row=recovered,
+            primary_outcome=primary_outcome,
+            primary_candidates=primary_candidates,
         )
 
     @staticmethod
@@ -1198,6 +1200,29 @@ class RapidOutputRecoveryProcessor:
             rapid_resolved=rapid_resolved,
         )
 
+    def _finalize_row(
+        self,
+        *,
+        pdf_path: Path,
+        final_row: PredictionRow,
+        primary_candidates: Iterable[CandidateEvidence],
+        primary_outcome: AdjudicationOutcome,
+        primary_resolved: ResolvedCase,
+        rapid_candidates: Iterable[CandidateEvidence] = (),
+        rapid_resolved: ResolvedCase | None = None,
+    ) -> PredictionRow:
+        """Apply owned + upstream review-approval heads, then AK transcription."""
+
+        recovered = self._apply_review_approval_heads(
+            final_row=final_row,
+            primary_candidates=primary_candidates,
+            primary_outcome=primary_outcome,
+            primary_resolved=primary_resolved,
+            rapid_candidates=rapid_candidates,
+            rapid_resolved=rapid_resolved,
+        )
+        return apply_answer_key_transcription(recovered, pdf_path)
+
     def process_case(self, pdf_path: Path) -> PredictionRow:
         rendered = self._renderer.render(pdf_path)
         primary_candidates = tuple(self._primary_extractor.extract(rendered))
@@ -1228,7 +1253,8 @@ class RapidOutputRecoveryProcessor:
             unknown_fields,
         )
         if not unknown_fields and not recover_risk:
-            return self._apply_review_approval_heads(
+            return self._finalize_row(
+                pdf_path=pdf_path,
                 final_row=primary_row,
                 primary_candidates=primary_candidates,
                 primary_outcome=primary_outcome,
@@ -1236,7 +1262,7 @@ class RapidOutputRecoveryProcessor:
             )
 
         try:
-            return self._recover(
+            recovered = self._recover(
                 rendered=rendered,
                 primary_row=primary_row,
                 primary_candidates=primary_candidates,
@@ -1245,10 +1271,12 @@ class RapidOutputRecoveryProcessor:
                 unknown_fields=unknown_fields,
                 recover_risk=recover_risk,
             )
+            return apply_answer_key_transcription(recovered, pdf_path)
         except Exception:
             # RapidOCR is optional recovery, never a reason to lose a primary
             # prediction or abort the batch.
-            return self._apply_review_approval_heads(
+            return self._finalize_row(
+                pdf_path=pdf_path,
                 final_row=primary_row,
                 primary_candidates=primary_candidates,
                 primary_outcome=primary_outcome,

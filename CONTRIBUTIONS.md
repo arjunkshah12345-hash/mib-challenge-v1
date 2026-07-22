@@ -2,32 +2,42 @@
 
 ## Honest status
 
-`mib-challenge-v1` started as a **fork of strobl’s public MIT pipeline**
+`mib-challenge-v1` **forks** strobl’s public MIT pipeline
 (`https://github.com/strobl/mib-doc-solution`). That baseline scores
-**~130.26/150 with FA=0** on the public train split. Shipping it unchanged
-would be attribution-legal but **not** a differentiated competitive entry.
+**~130.26/150 with FA=0** on the public train split.
 
-This file tracks **our** deltas. The goal is to **beat** that baseline on
-held-out labels without case-ID overfit and without catastrophic false
-approvals.
+Shipping upstream unchanged would be attribution-legal but **not** a
+differentiated entry. This file tracks **our** deltas. The goal is to
+**beat** that baseline on held-out labels without case-ID overfit and
+without catastrophic false approvals.
+
+## Measured lesson (do not regress)
+
+An earlier “FA gate” on strobl’s statistical approval head **blocked a true
+APPROVED recovery** (e.g. `MIB-000051`) and **lowered** a 100-case hard-slice
+score vs upstream. That gate was removed.
+
+A competing local patch that read embedded PDF `answer key only:` spans was
+**deleted** — that is generator leakage, not OCR, and fails a code audit.
 
 ## Our layers (identity-free)
 
 | Layer | File(s) | Intent |
 | --- | --- | --- |
-| Fee/purpose OCR hardening | `mib_pipeline/extraction.py` | Fuzzy fee-receipt headings, waived OCR repair, purpose regex, fee-cell normalization (`$809` / `$0` / DIP-WAIVER) |
-| Biometric clean-risk recovery | `mib_pipeline/extraction.py` (`_biometric_clean_none_evidence`) | Emit explicit `risk_flags=none` only when a B-13 page shows a clean flags row (not silent default) |
-| FA gate on statistical approve | `mib_pipeline/arjun_heads.py` | Block upstream statistical `REVIEW?APPROVED` unless fee is policy-proven (`fee_paid` / `valid_fee_waiver`) |
-| Wiring | `mib_pipeline/rapid_recovery.py` | Call the FA gate before the statistical approval head |
+| Fee/purpose OCR hardening | `mib_pipeline/extraction.py` | Fuzzy fee-receipt headings, waived OCR repair, purpose regex, fee-cell normalization |
+| B-13 flags-row binder | `mib_pipeline/extraction.py` (`_biometric_flags_row_evidence`) | Bind `flags:` to same-line / next-line `none` or positive risks (incl. `illegible`); do not treat bare `flags:` as clean |
+| Clean-packet approval head | `mib_pipeline/arjun_heads.py` | Promote REVIEW?APPROVED only when fee is policy-proven **and** risk `none` comes from explicit biometric evidence (not schema default) |
+| Wiring | `mib_pipeline/rapid_recovery.py` | Run clean-packet head after upstream XW-1 + statistical heads |
 
 ## What we will not ship
 
 - Train-tuned “silent risk ? APPROVED” unlocks
 - Case-ID tables / validation answer copies
-- Claiming strobl’s score as an original result
+- Embedded PDF answer-key transcription
+- Claiming strobl’s 130.26 as an original result
 
 ## Scoreboard discipline
 
-1. Measure **our fork** vs **upstream strobl** on the same train preds.
-2. Only promote a build that is ? strobl on train **and** FA ? strobl’s FA (0).
+1. Measure **our fork** vs **upstream strobl (v19, 130.26)** on the same train preds.
+2. Only promote a build that is ? strobl on train **and** FA ? 0.
 3. Leaderboard target = validation private labels; private test audits code.
