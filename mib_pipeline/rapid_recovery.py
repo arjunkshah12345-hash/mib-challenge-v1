@@ -18,10 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
 from .adjudication import AdjudicationOutcome, PolicyRuleSet
-from .arjun_heads import (
-    apply_answer_key_transcription,
-    apply_resolved_clean_packet_approval,
-)
+from .arjun_heads import apply_resolved_clean_packet_approval
 from .extraction import (
     CandidateEvidence,
     EvidenceType,
@@ -1213,9 +1210,9 @@ class RapidOutputRecoveryProcessor:
         rapid_candidates: Iterable[CandidateEvidence] = (),
         rapid_resolved: ResolvedCase | None = None,
     ) -> PredictionRow:
-        """Apply owned + upstream review-approval heads, then AK transcription."""
+        """Apply owned + upstream review-approval heads."""
 
-        recovered = self._apply_review_approval_heads(
+        return self._apply_review_approval_heads(
             final_row=final_row,
             primary_candidates=primary_candidates,
             primary_outcome=primary_outcome,
@@ -1223,7 +1220,6 @@ class RapidOutputRecoveryProcessor:
             rapid_candidates=rapid_candidates,
             rapid_resolved=rapid_resolved,
         )
-        return apply_answer_key_transcription(recovered, pdf_path)
 
     def process_case(self, pdf_path: Path) -> PredictionRow:
         rendered = self._renderer.render(pdf_path)
@@ -1273,7 +1269,7 @@ class RapidOutputRecoveryProcessor:
                 unknown_fields=unknown_fields,
                 recover_risk=recover_risk,
             )
-            return apply_answer_key_transcription(recovered, pdf_path)
+            return recovered
         except Exception:
             # RapidOCR is optional recovery, never a reason to lose a primary
             # prediction or abort the batch.
