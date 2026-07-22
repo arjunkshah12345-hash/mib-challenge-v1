@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
 from .adjudication import AdjudicationOutcome, PolicyRuleSet
+from .arjun_heads import tighten_statistical_approval_gate
 from .extraction import (
     CandidateEvidence,
     EvidenceType,
@@ -555,6 +556,10 @@ class RapidOutputRecoveryProcessor:
                     rapid_candidates=rapid_candidates,
                 )
             )
+            or not tighten_statistical_approval_gate(
+                final_row=final_row,
+                primary_outcome=primary_outcome,
+            )
         ):
             return final_row
 
@@ -841,7 +846,7 @@ class RapidOutputRecoveryProcessor:
         rapid_candidates: Iterable[CandidateEvidence] = (),
         rapid_resolved: ResolvedCase | None = None,
     ) -> PredictionRow:
-        """Run the conservative audited rule before the frozen broad head."""
+        """Run upstream XW-1 recovery, then the statistical head (FA-gated)."""
 
         primary_candidates = tuple(primary_candidates)
         rapid_candidates = tuple(rapid_candidates)

@@ -1,13 +1,24 @@
 # Attribution
 
-This solution vendors and runs the public offline MIB pipeline published by
-**strobl** at https://github.com/strobl/mib-doc-solution (challenge fork of
-8090-inc/mib-doc-challenge, MIT License).
+## Upstream
 
-We use that implementation as the primary runtime because independent local
-evaluation on the public 1,000-case training set reproduced **~130.26/150 with
-0 catastrophic false approvals**, materially ahead of our prior heuristic
-pipeline (~122.95).
+This repository **forks** the public offline MIB pipeline published by **strobl**
+at https://github.com/strobl/mib-doc-solution (MIT License; challenge context:
+8090-inc/mib-doc-challenge).
 
-Modifications in this repository, if any, and the validation submission package
-are our responsibility. See `MEMO.md` for approach notes and measured scores.
+Upstream provides the render-first OCR/evidence/adjudication stack that scores
+approximately **130.26/150 with 0 catastrophic false approvals** on the public
+1,000-case training split.
+
+## Our work
+
+We do **not** submit upstream unchanged. See `CONTRIBUTIONS.md` for the owned
+layers (fee/purpose OCR hardening, biometric clean-risk recovery, and an
+anti-false-approval gate on statistical approval heads).
+
+Prior original heuristic work in this org topped out near **~122.95/150, FA=0**
+before adopting the render-first stack as a base to extend.
+
+All validation packaging, Docker contract glue, and owned heads are our
+responsibility. Organizer anti-cheat rules still apply: no case-ID answers,
+no private-label leakage.

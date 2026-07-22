@@ -870,7 +870,13 @@ class VisibleEvidenceExtractor:
             return "sponsor_attestation"
         if "registry extract" in heading or "registry record" in heading:
             return "registry_extract"
-        if "fee receipt" in heading:
+        if "fee receipt" in heading or (
+            "fee" in heading
+            and difflib.SequenceMatcher(
+                None, _ocr_key(heading), "mibfeereceipt"
+            ).ratio()
+            >= 0.72
+        ):
             return "fee_receipt"
         if (
             "form i-8090" in heading
@@ -1255,7 +1261,7 @@ class VisibleEvidenceExtractor:
             for purpose in KNOWN_PURPOSES:
                 if purpose in normalized_value:
                     return purpose
-            return _canonical_vocabulary_value(value, KNOWN_PURPOSES, cutoff=0.68)
+            return _canonical_vocabulary_value(value, KNOWN_PURPOSES, cutoff=0.62)
         if field_name == "applicant_name":
             words = re.findall(r"[A-Za-z]+", value)
             if len(words) != 2:
@@ -1301,8 +1307,21 @@ class VisibleEvidenceExtractor:
             text,
             re.I,
         )
+        if purpose is None:
+            purpose = re.search(
+                r"\bpurpose\s*[:#.=_-]\s*(.+?)(?:\.|$)",
+                text,
+                re.I,
+            )
         if purpose:
-            matches.append(("declared_purpose", purpose.group(1)))
+            raw_purpose = purpose.group(1).strip()
+            canonical = VisibleEvidenceExtractor._normalize_value(
+                "declared_purpose",
+                raw_purpose,
+            )
+            matches.append(
+                ("declared_purpose", canonical or raw_purpose)
+            )
         visa = re.search(
             r"\bclass\s+([A-Za-z0-9._-]+)\s+compliance\b",
             text,
@@ -1532,6 +1551,12 @@ class VisibleEvidenceExtractor:
         """Normalize one receipt-row value without weakening global parsing."""
 
         value_key = _ocr_key(text)
+        # Prefer waived repairs before the paid bowl/descender repair — a
+        # damaged ``waived`` must not collapse into the ``paid`` prior.
+        if re.fullmatch(r"w[a4][il1]ve?[d]", value_key) or re.fullmatch(
+            r"wa[il1]ved", value_key
+        ):
+            return "waived"
         # On photocopied receipts the damaged bowl/descender of the leading
         # ``p`` in ``paid`` repeatedly resembles ``n`` or ``m``.  This narrow
         # repair is used only behind the receipt title + status-row gates and
@@ -1779,7 +1804,15 @@ class VisibleEvidenceExtractor:
         """
 
         if not any(
-            _ocr_key(line.text) == _ocr_key("MIB Fee Receipt")
+            (
+                _ocr_key(line.text) == _ocr_key("MIB Fee Receipt")
+                or difflib.SequenceMatcher(
+                    None,
+                    _ocr_key(line.text),
+                    "mibfeereceipt",
+                ).ratio()
+                >= 0.78
+            )
             and line.confidence >= self._minimum_legible_confidence
             for line in lines[:8]
         ):
@@ -1809,6 +1842,28 @@ class VisibleEvidenceExtractor:
             if (cues := clean(line)) is not None
         }
 
+        def _normalize_fee_cell(raw: str) -> str:
+            key = _ocr_key(raw)
+            if key in {"80900", "8090", "809"} or re.fullmatch(
+                r"\$?\s*809(?:[.,]00)?",
+                raw.strip(),
+            ):
+                return "$809.00"
+            if key in {"000", "00", "0"} or re.fullmatch(
+                r"\$?\s*0(?:[.,]0{1,2})?",
+                raw.strip(),
+            ):
+                return "$0.00"
+            if "dip" in key and "waiv" in key:
+                return "DIP-WAIVER"
+            if key in {"na", "n/a", "none"} or re.fullmatch(
+                r"n\s*/?\s*a",
+                raw.strip(),
+                re.I,
+            ):
+                return "N/A"
+            return raw.strip()
+
         def exact_row(
             label_text: str,
             allowed_values: tuple[str, ...],
@@ -1816,7 +1871,7 @@ class VisibleEvidenceExtractor:
             allowed = {value.casefold(): value for value in allowed_values}
             matches: list[tuple[str, tuple[OcrLine, ...]]] = []
             combined_pattern = re.compile(
-                rf"{re.escape(label_text)}\s*:?\s*(\S+)\s*\Z",
+                rf"{re.escape(label_text)}\s*:?\s*(.+?)\s*\Z",
                 re.I,
             )
             for line in lines[:20]:
@@ -1824,7 +1879,8 @@ class VisibleEvidenceExtractor:
                     continue
                 combined = combined_pattern.fullmatch(line.text.strip())
                 if combined is not None:
-                    value = allowed.get(combined.group(1).casefold())
+                    normalized = _normalize_fee_cell(combined.group(1))
+                    value = allowed.get(normalized.casefold())
                     if value is not None:
                         matches.append((value, (line,)))
 
@@ -1832,17 +1888,28 @@ class VisibleEvidenceExtractor:
                 line
                 for line in lines[:20]
                 if id(line) in clean_lines
-                and re.fullmatch(
-                    rf"{re.escape(label_text)}\s*:?",
-                    line.text.strip(),
-                    re.I,
+                and (
+                    re.fullmatch(
+                        rf"{re.escape(label_text)}\s*:?",
+                        line.text.strip(),
+                        re.I,
+                    )
+                    or difflib.SequenceMatcher(
+                        None,
+                        _ocr_key(line.text),
+                        _ocr_key(label_text),
+                    ).ratio()
+                    >= 0.80
                 )
             )
             values = tuple(
-                (allowed[line.text.strip().casefold()], line)
+                (allowed[normalized.casefold()], line)
                 for line in lines[:20]
                 if id(line) in clean_lines
-                and line.text.strip().casefold() in allowed
+                and (
+                    normalized := _normalize_fee_cell(line.text)
+                ).casefold()
+                in allowed
             )
             for label in labels:
                 for value, value_line in values:
@@ -3161,6 +3228,121 @@ class VisibleEvidenceExtractor:
             ),
         )
 
+    @classmethod
+    def _line_looks_like_clean_risk(cls, text: str) -> bool:
+        """True when a biometric risk row visibly asserts a clean/none result."""
+
+        folded = " ".join(text.casefold().split())
+        if not folded:
+            return False
+        if cls._risk_flags_from_text(text) or cls._fuzzy_risk_flags_from_text(text):
+            return False
+        if re.search(
+            r"\b(?:observed|risk)?\s*flags?\b",
+            folded,
+            re.I,
+        ) and re.search(
+            r"\b(?:none|clear|clean|nil|n\/?a|no\s+flags?|not\s+observed)\b",
+            folded,
+            re.I,
+        ):
+            return True
+        if re.fullmatch(
+            r"(?:observed\s+)?(?:risk\s+)?flags?\s*[:#.=_-]?\s*"
+            r"(?:none|clear|clean|nil|n\/?a|no|—|-|–)?",
+            folded,
+        ):
+            return True
+        return bool(
+            re.search(r"\b(?:no\s+disqualifying|no\s+risk)\b", folded)
+        )
+
+    def _biometric_clean_none_evidence(
+        self,
+        rendered_case: RenderedCase,
+        baseline: tuple[CandidateEvidence, ...],
+        routing_lines: dict[int, tuple[OcrLine, ...]],
+    ) -> tuple[CandidateEvidence, ...]:
+        """Emit explicit ``none`` when a B-13 page shows a clean flags row.
+
+        Silent disqualifiers must stay unresolved.  This path only fires when
+        a biometric/B-13 page is present for the active case, no positive risk
+        phrase is visible on that page, and the flags row itself reads clean.
+        """
+
+        from .resolution import CaseLinker, EvidencePrecedenceResolver
+
+        resolved = EvidencePrecedenceResolver().resolve(
+            CaseLinker().link(rendered_case.case_id, baseline)
+        )
+        if resolved.value("risk_flags") is not None:
+            return ()
+
+        recovered: list[CandidateEvidence] = []
+        for page in rendered_case.pages:
+            lines = routing_lines.get(page.index, ())
+            if not lines:
+                continue
+            heading_type = self._visible_page_heading_type(lines)
+            biometric_score = max(
+                (
+                    difflib.SequenceMatcher(
+                        None,
+                        _ocr_key(line.text),
+                        "formb13biometricscanslip",
+                    ).ratio()
+                    for line in lines[:6]
+                ),
+                default=0.0,
+            )
+            if (
+                heading_type is not EvidenceType.BIOMETRIC_SLIP
+                and biometric_score < 0.72
+            ):
+                continue
+
+            page_case_ids = {
+                case_id
+                for line in lines
+                if (case_id := self._normalize_value("case_id", line.text))
+                is not None
+            }
+            if page_case_ids and rendered_case.case_id not in page_case_ids:
+                continue
+
+            positive: set[str] = set()
+            clean_line: OcrLine | None = None
+            for line in lines:
+                positive.update(self._risk_flags_from_text(line.text))
+                positive.update(self._fuzzy_risk_flags_from_text(line.text))
+                if clean_line is None and self._line_looks_like_clean_risk(line.text):
+                    clean_line = line
+            if positive or clean_line is None:
+                continue
+
+            recovered.append(
+                CandidateEvidence(
+                    field_name="risk_flags",
+                    value="none",
+                    evidence_type=EvidenceType.BIOMETRIC_SLIP,
+                    page_index=page.index,
+                    box=clean_line.box,
+                    legible=True,
+                    superseded=False,
+                    ocr_confidence=max(clean_line.confidence, 0.45),
+                    visual_cues=(
+                        "biometric_clean_flags_row",
+                        "explicit_risk_none",
+                    ),
+                    case_id_hint=rendered_case.case_id,
+                    applicant_hint=None,
+                )
+            )
+
+        if len({item.page_index for item in recovered}) != 1:
+            return ()
+        return (max(recovered, key=lambda item: item.ocr_confidence),)
+
     def _retry_target_page(
         self,
         rendered_case: RenderedCase,
@@ -4119,6 +4301,14 @@ class VisibleEvidenceExtractor:
                 )
             )
             baseline = tuple(candidates)
+        candidates.extend(
+            self._biometric_clean_none_evidence(
+                rendered_case,
+                baseline,
+                routing_lines,
+            )
+        )
+        baseline = tuple(candidates)
         if self._consensus_retry:
             candidates.extend(
                 self._consensus_retry_evidence(

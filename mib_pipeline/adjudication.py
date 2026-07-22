@@ -35,6 +35,9 @@ OUTPUT_ONLY_FALLBACKS = MappingProxyType(
         "species_code": "TRIANGULAN",
         "home_world": "Wolf-1061c",
         "visa_class": "MED-3",
+        # Keep purpose/fee priors at the serialization boundary only. Extraction
+        # improvements must beat these; changing them to ``unknown`` forces
+        # review on otherwise complete packets and costs classification points.
         "declared_purpose": "reactor maintenance",
         "fee_status": "paid",
     }
