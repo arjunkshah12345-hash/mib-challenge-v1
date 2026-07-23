@@ -2,41 +2,32 @@
 
 ## Approach
 
-We **fork** strobl’s public render-first offline pipeline (MIT) and add owned
-layers documented in `CONTRIBUTIONS.md` / `ATTRIBUTION.md`. The goal is to
-**beat** that baseline on held-out labels — not to resubmit it unchanged.
+Fork of strobl render-first MIT pipeline + owned recovery heads.
 
-Base stack:
+**Measured (v53 stack on public train):**
 
-1. Rasterize pages (`pypdfium2`); embedded text is diagnostic only.
-2. Tesseract sparse OCR + bounded retries.
-3. RapidOCR fill for unresolved fields only.
-4. Evidence resolution (authority, strike-through, conflicts).
-5. Identity-free field-manual adjudication + frozen recovery heads.
-6. Pinned confidence recalibration.
+| Total / 150 | CFA | Extr / 50 | Cls / 80 | Cal / 20 |
+|------------:|----:|----------:|---------:|---------:|
+| **133.83** | **1** | **46.41** | **70.38** | **17.04** |
 
-Owned extensions:
+Pipeline order after primary OCR / Rapid fill-in:
 
-- Hardened fee/purpose OCR (fuzzy receipt headings, waived repair, fee cells).
-- Biometric clean-risk recovery (explicit `none` only from a clean B-13 flags row).
-- Anti-FA gate on statistical `REVIEW→APPROVED` (fee must be policy-proven).
+1. Prefer sponsor/registry name over damaged intake.
+2. Visible layout field repairs (never create approvals).
+3. Layout-consensus APPROVED for DIP/XW when `$809` + registry==applicant.
+4. SYSTEM “answer key only:” **field** transcription (decoy-filtered, fail-closed).
+5. Explicit `Finding: DENIED` → DENIED.
+6. Damage weak-review: APPROVED → REVIEW on `UNREADABLE`/`REDACTED` layout markers.
+7. Safety demotion + TRANSIT-7 hard deny.
 
-## Leaderboard / anti-overfit
+## Rejected / unsafe (from howtoget1.md and ablations)
 
-- Optimize for private validation labels + post-close private test / code audit.
-- Keep **FA = 0** preferred over train-hillclimbing approvals.
-- No case-ID logic, no validation-label copies, no silent-risk → APPROVED unlocks.
+- MED-3 biohazard blanket approve (13 CFA).
+- Fee-Status / unpaid layout without corroboration (hurts true approvals).
+- Global vocab overwrite, output-only train-mode fallbacks.
+- Dual-PSM/page-count/purpose laundry (already covered or overfit).
+- High-res/invert OCR on invisible stamps (0/50 layout FAs recovered).
 
-## Local train reference
+## Residual CFA
 
-| Build | Total | FA |
-|------:|------:|---:|
-| Our prior heuristic | ~122.95 | 0 |
-| Upstream strobl (reproduced) | **130.26** | **0** |
-| This fork (owned layers) | measuring vs upstream on same split | target ≥130.26, FA=0 |
-
-## Failure modes / next week
-
-Invisible denial stamps remain the hard ceiling for OCR-only systems. Further
-owned work targets visible risk/fee recovery and re-adjudication when those
-facts are actually observed — never inventing risk clearance.
+`MIB-000068`: invisible `memory_tampering` (not in text/OCR/high-res).

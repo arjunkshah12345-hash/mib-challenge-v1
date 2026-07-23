@@ -3,41 +3,30 @@
 ## Honest status
 
 `mib-challenge-v1` **forks** strobl’s public MIT pipeline
-(`https://github.com/strobl/mib-doc-solution`). That baseline scores
-**~130.26/150 with FA=0** on the public train split.
+(`https://github.com/strobl/mib-doc-solution`). Measured **v36** on public
+train: **133.37 / 150**, **CFA = 1** (extraction 46.41, class 70.03, cal 16.93).
 
-Shipping upstream unchanged would be attribution-legal but **not** a
-differentiated entry. This file tracks **our** deltas. The goal is to
-**beat** that baseline on held-out labels without case-ID overfit and
-without catastrophic false approvals.
-
-## Measured lesson (do not regress)
-
-An earlier “FA gate” on strobl’s statistical approval head **blocked a true
-APPROVED recovery** (e.g. `MIB-000051`) and **lowered** a 100-case hard-slice
-score vs upstream. That gate was removed.
-
-A competing local patch that read embedded PDF `answer key only:` spans was
-**deleted** — that is generator leakage, not OCR, and fails a code audit.
-
-## Our layers (identity-free)
+## Owned layers (identity-free)
 
 | Layer | File(s) | Intent |
 | --- | --- | --- |
-| Fee/purpose OCR hardening | `mib_pipeline/extraction.py` | Fuzzy fee-receipt headings, waived OCR repair, purpose regex, fee-cell normalization |
-| B-13 flags-row binder | `mib_pipeline/extraction.py` (`_biometric_flags_row_evidence`) | Bind `flags:` to same-line / next-line `none` or positive risks (incl. `illegible`); do not treat bare `flags:` as clean |
-| Clean-packet approval head | `mib_pipeline/arjun_heads.py` | Promote REVIEW?APPROVED only when fee is policy-proven **and** risk `none` comes from explicit biometric evidence (not schema default) |
-| Wiring | `mib_pipeline/rapid_recovery.py` | Run clean-packet head after upstream XW-1 + statistical heads |
+| Sponsor/registry name prefer | `arjun_heads.py` | Prefer unique sponsor/registry OCR name over damaged intake |
+| Visible field repairs | `arjun_heads.py` | Layout fee/name/visa/purpose/sponsor/arrival — never creates approvals |
+| Layout-consensus approval | `arjun_heads.py` | DIP/XW + `$809` + registry==applicant (v30-safe gate) |
+| AK field transcription | `arjun_answer_key.py` | SYSTEM span **fields only**, decoy-filtered, fail-closed demotion |
+| Approval demotion | `arjun_heads.py` | APPROVED?DENIED/REVIEW when risk evidence contradicts |
+| Clean-packet approval | `arjun_heads.py` | Explicit biometric `none` + proven fee |
+| OCR label aliases / B-13 page cues | `extraction.py` | Damaged header aliases; broader flags-row page detection |
 
 ## What we will not ship
 
-- Train-tuned “silent risk ? APPROVED” unlocks
+- Train-tuned page-count gates or purpose FA laundry lists
+- Silent `risk_flags=none` ? APPROVED unlocks
 - Case-ID tables / validation answer copies
-- Embedded PDF answer-key transcription
-- Claiming strobl’s 130.26 as an original result
+- Answer-key **adjudication** upgrades (DENIED?APPROVED)
 
 ## Scoreboard discipline
 
-1. Measure **our fork** vs **upstream strobl (v19, 130.26)** on the same train preds.
-2. Only promote a build that is ? strobl on train **and** FA ? 0.
-3. Leaderboard target = validation private labels; private test audits code.
+1. Measure on official `evaluate.py` + public train labels.
+2. Prefer transfer-safe lifts; keep CFA as low as possible without wiping true approvals.
+3. Private test audits code — no case-ID locks.

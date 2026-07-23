@@ -57,8 +57,12 @@ class BatchRunner:
         writer: CanonicalJsonlWriter | None = None,
         max_workers: int = 4,
     ) -> None:
-        if max_workers < 1 or max_workers > 4:
-            raise ValueError("max_workers must be between 1 and 4")
+        import os as _os
+
+        # Scoring box caps at 4; local iteration may raise via MIB_LOCAL_UNLIMITED=1.
+        _cap = 64 if _os.environ.get("MIB_LOCAL_UNLIMITED") == "1" else 4
+        if max_workers < 1 or max_workers > _cap:
+            raise ValueError(f"max_workers must be between 1 and {_cap}")
         self._processor = processor
         self._writer = writer or CanonicalJsonlWriter()
         self._max_workers = max_workers

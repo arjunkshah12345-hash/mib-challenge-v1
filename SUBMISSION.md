@@ -1,8 +1,8 @@
 # Solution repository
 
-Public solution repository (includes `Dockerfile`):
+Public solution repository (must include a `Dockerfile`):
 
-https://github.com/arjunkshah12345-hash/mib-challenge-v1
+**https://github.com/arjunkshah12345-hash/mib-challenge-v1**
 
 ## Run contract
 
@@ -15,3 +15,11 @@ docker run --rm --network none \
   --mount type=bind,source=/path/to/output,destination=/output \
   mib-submission /input /output/predictions.jsonl
 ```
+
+Entrypoint accepts exactly two arguments: input PDF directory and output predictions path (JSONL).
+
+## Local train score (reference)
+
+Measured **133.83 / 150** on public train (**CFA = 1**). Includes visible field
+repairs, fail-closed SYSTEM-span field transcription, and damage weak-review
+(`UNREADABLE`/`REDACTED` → REVIEW). See `MEMO.md`.

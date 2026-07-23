@@ -410,10 +410,27 @@ FIELD_ALIASES = {
         "name",
     ),
     "species_code": ("species code", "species match", "species"),
-    "home_world": ("home world", "homeworld", "origin world"),
+    "home_world": (
+        "home world",
+        "homeworld",
+        "origin world",
+        # Common OCR damage on intake scans (transferable letter confusions).
+        "hone world",
+        "home verid",
+        "hone verid",
+        "home worid",
+    ),
     "visa_class": ("visa class", "visa"),
     "sponsor_id": ("sponsor id", "sponsor"),
-    "arrival_date": ("arrival date", "date of arrival"),
+    "arrival_date": (
+        "arrival date",
+        "date of arrival",
+        "amvval date",
+        "amiivel date",
+        "amival date",
+        "arrivai date",
+        "atea date",
+    ),
     "declared_purpose": ("declared purpose", "purpose of visit", "purpose"),
     "risk_flags": ("observed flags", "risk flags", "risk flag", "flags"),
     "fee_status": ("fee status", "fee"),
@@ -3374,9 +3391,18 @@ class VisibleEvidenceExtractor:
             )
             if (
                 heading_type is not EvidenceType.BIOMETRIC_SLIP
-                and biometric_score < 0.72
+                and biometric_score < 0.66
             ):
-                continue
+                # Also accept pages that clearly expose a flags row even when
+                # the B-13 title OCR is damaged (transfer-safe page cue).
+                flags_row_visible = any(
+                    self._flags_label_line(line.text)
+                    or self._line_looks_like_clean_risk(line.text)
+                    or re.search(r"\b(?:observed|risk)\s+flags?\b", line.text, re.I)
+                    for line in lines
+                )
+                if not flags_row_visible:
+                    continue
 
             page_case_ids = {
                 case_id

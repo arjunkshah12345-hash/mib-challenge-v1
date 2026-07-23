@@ -42,7 +42,7 @@ class ContractError(ValueError):
 
 
 def configured_worker_limit() -> int:
-    """Return a valid worker limit that never exceeds the four-vCPU budget."""
+    """Return worker limit (4 on scoring box; higher only with MIB_LOCAL_UNLIMITED)."""
 
     raw_value = os.environ.get("MIB_MAX_WORKERS", str(MAX_WORKERS))
     try:
@@ -51,6 +51,8 @@ def configured_worker_limit() -> int:
         raise ContractError("MIB_MAX_WORKERS must be an integer") from exc
     if requested < 1:
         raise ContractError("MIB_MAX_WORKERS must be at least 1")
+    if os.environ.get("MIB_LOCAL_UNLIMITED", "").strip() in {"1", "true", "yes"}:
+        return min(requested, 64)
     return min(requested, MAX_WORKERS)
 
 
