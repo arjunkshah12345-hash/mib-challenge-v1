@@ -16,10 +16,9 @@ docker run --rm --network none \
   mib-submission /input /output/predictions.jsonl
 ```
 
-Entrypoint accepts exactly two arguments: input PDF directory and output predictions path (JSONL).
+Entrypoint accepts exactly two arguments: input PDF directory and output
+predictions path (JSONL). Image includes Tesseract + `poppler-utils`.
 
 ## Local train score (reference)
 
-Measured **133.83 / 150** on public train (**CFA = 1**). Includes visible field
-repairs, fail-closed SYSTEM-span field transcription, and damage weak-review
-(`UNREADABLE`/`REDACTED` → REVIEW). See `MEMO.md`.
+Measured **133.83 / 150** on public train (**CFA = 1**). See `MEMO.md`.

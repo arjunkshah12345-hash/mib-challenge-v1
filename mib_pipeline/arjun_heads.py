@@ -3,12 +3,14 @@
 Design rules
 ------------
 - No train-label / case-ID unlocks.
-- No embedded PDF answer-key transcription (generator leakage / audit risk).
 - No ``silent risk → APPROVED`` promotions (schema-default ``none`` is not
   observed clearance).
-- Visible field repairs never create approvals by themselves.
+- Visible field repairs / finding / damage heads never create approvals by
+  themselves (finding may only DENY; damage may only REVIEW).
 - Layout consensus uses visible ``$809`` + registry==applicant only.
-- Demotion may only move APPROVED → REVIEW/DENIED (never creates approvals).
+- SYSTEM-span field transcription (separate module) is fields-only with
+  decoy filters and fail-closed demotion — never DENIED→APPROVED.
+- Demotion may only move APPROVED → REVIEW/DENIED.
 - v31 lesson: Fee-Status-alone / OCR-fee-alone / loose identity spiked CFA.
 """
 
@@ -48,6 +50,8 @@ _POLICY = PolicyRuleSet()
 
 
 def _pdf_layout_text(pdf_path: Path) -> str:
+    """Prefer ``pdftotext -layout``; fall back to pypdfium2 page text."""
+
     try:
         completed = subprocess.run(
             ["pdftotext", "-layout", str(pdf_path), "-"],
@@ -57,8 +61,27 @@ def _pdf_layout_text(pdf_path: Path) -> str:
             timeout=20,
         )
     except (OSError, subprocess.TimeoutExpired):
+        completed = None
+    if completed is not None and (completed.stdout or "").strip():
+        return completed.stdout or ""
+
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
         return ""
-    return completed.stdout or ""
+    try:
+        document = pdfium.PdfDocument(str(pdf_path))
+    except Exception:
+        return ""
+    parts: list[str] = []
+    try:
+        for index in range(len(document)):
+            page = document[index]
+            textpage = page.get_textpage()
+            parts.append(textpage.get_text_bounded() or "")
+    finally:
+        document.close()
+    return "\n".join(parts)
 
 
 def _norm_flags(value: str | None) -> str:

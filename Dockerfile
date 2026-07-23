@@ -25,12 +25,27 @@ WORKDIR /app
 
 ARG TESSERACT_VERSION=5.3.0-2
 ARG TESSERACT_DATA_VERSION=1:4.1.0-2
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends \
-      "tesseract-ocr=${TESSERACT_VERSION}" \
-      "tesseract-ocr-eng=${TESSERACT_DATA_VERSION}" \
-      "tesseract-ocr-osd=${TESSERACT_DATA_VERSION}" \
-    && rm -rf /var/lib/apt/lists/*
+# poppler-utils is preferred for pdftotext -layout. If apt mirrors fail, the
+# runtime falls back to pypdfium2 page text for the same heads.
+RUN set -eux; \
+    for attempt in 1 2 3; do \
+      apt-get update; \
+      if apt-get install --yes --no-install-recommends --fix-missing \
+          -o Acquire::Retries=5 \
+          -o Acquire::http::Pipeline-Depth=0 \
+          "tesseract-ocr=${TESSERACT_VERSION}" \
+          "tesseract-ocr-eng=${TESSERACT_DATA_VERSION}" \
+          "tesseract-ocr-osd=${TESSERACT_DATA_VERSION}" \
+          poppler-utils; then \
+        break; \
+      fi; \
+      echo "apt attempt ${attempt} failed; retrying"; \
+      sleep 5; \
+      if [ "${attempt}" -eq 3 ]; then exit 1; fi; \
+    done; \
+    rm -rf /var/lib/apt/lists/*; \
+    command -v tesseract; \
+    command -v pdftotext || echo "pdftotext missing (runtime will use pypdfium2 fallback)"
 
 COPY requirements.lock /app/requirements.lock
 RUN python3 -m pip install \

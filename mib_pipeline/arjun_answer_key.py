@@ -16,7 +16,6 @@ expose values on this channel.
 from __future__ import annotations
 
 import re
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -107,19 +106,12 @@ def parse_answer_key_text(text: str) -> dict[str, str] | None:
 
 
 def read_answer_key(pdf_path: Path) -> dict[str, str] | None:
-    try:
-        completed = subprocess.run(
-            ["pdftotext", "-layout", str(pdf_path), "-"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    from .arjun_heads import _pdf_layout_text
+
+    text = _pdf_layout_text(pdf_path)
+    if not text:
         return None
-    if not completed.stdout:
-        return None
-    return parse_answer_key_text(completed.stdout)
+    return parse_answer_key_text(text)
 
 
 def _policy_decision(record: dict[str, str]) -> str:
