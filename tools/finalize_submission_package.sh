@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Finalize validation predictions + challenge submissions package at 5000 rows.
+# Package v79 validation predictions locally under mib-challenge-v1.
+# Does NOT write into mib-doc-challenge/submissions or open a PR.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CHALLENGE_SUBMISSIONS="/Users/arjunkshah21/Downloads/mib-doc-challenge/submissions/arjunkshah12345-hash"
+PKG="$ROOT/artifacts/submission-package"
 VAL_RAW="${VAL_RAW:-$ROOT/artifacts/predictions-validation-v79.jsonl}"
 VAL_FINAL="$ROOT/artifacts/predictions-validation-v79.jsonl"
-MANIFEST="/Users/arjunkshah21/Downloads/mib-doc-challenge/data/validation_manifest.csv"
+MANIFEST="${MANIFEST:-/Users/arjunkshah21/Downloads/mib-doc-challenge/data/validation_manifest.csv}"
+VALIDATE="${VALIDATE:-/Users/arjunkshah21/Downloads/mib-doc-challenge/scripts/validate_submission.py}"
 
 cd "$ROOT"
 while true; do
@@ -43,38 +45,19 @@ if len(lines) != 5000:
     raise SystemExit(f"expected 5000 unique case ids, got {len(lines)}")
 PY
 
-.venv/bin/python3 /Users/arjunkshah21/Downloads/mib-doc-challenge/scripts/validate_submission.py \
+.venv/bin/python3 "$VALIDATE" \
   --submission "$VAL_FINAL" \
   --manifest "$MANIFEST" \
   --require-complete | tee artifacts/validate-val-v79.txt
 
-mkdir -p "$CHALLENGE_SUBMISSIONS"
-cp "$VAL_FINAL" "$CHALLENGE_SUBMISSIONS/predictions.jsonl"
-cp "$ROOT/MEMO.md" "$CHALLENGE_SUBMISSIONS/MEMO.md"
+mkdir -p "$PKG"
+cp "$VAL_FINAL" "$PKG/predictions.jsonl"
+cp "$ROOT/MEMO.md" "$PKG/MEMO.md"
+cp "$ROOT/SUBMISSION.md" "$PKG/SUBMISSION.md"
+cp "$ROOT/TRANSFER_AUDIT.md" "$PKG/TRANSFER_AUDIT.md" 2>/dev/null || true
+cp artifacts/validate-val-v79.txt "$PKG/validate-val-v79.txt"
 
-cat > "$CHALLENGE_SUBMISSIONS/SUBMISSION.md" << 'EOF'
-# Submission
-
-- GitHub username: `arjunkshah12345-hash`
-- Public solution repository: https://github.com/arjunkshah12345-hash/mib-challenge-v1
-- Mandatory Dockerfile: https://github.com/arjunkshah12345-hash/mib-challenge-v1/blob/main/Dockerfile
-
-Ship build **v79** (transfer-scrubbed): public-train score **138.06 / 150**,
-**CFA = 0** (extraction 46.42, classification 73.74, calibration 17.91).
-n=1 softens / false-soften path removed; structural gates kept. Details in `MEMO.md`.
-
-Validation predictions in this PR: **5,000 / 5,000** records, official
-validator clean (see repo `artifacts/validate-val-v79.txt` after finalize).
-
-The solution repository contains the complete offline runtime (Tesseract +
-RapidOCR + `poppler-utils`), hashed `requirements.lock`, and pinned
-recalibration artifacts. This challenge entry is complete only when this pull
-request targets the official repository's `main` branch **and** the mandatory
-submission form has also been completed:
-
-https://docs.google.com/forms/d/1ZLkHmTsYd9I87JL1sUyps2rPTe6ohEI_lTZ8Jjts6bw/viewform
-EOF
-
-sha="$(shasum -a 256 "$CHALLENGE_SUBMISSIONS/predictions.jsonl" | awk '{print $1}')"
+sha="$(shasum -a 256 "$PKG/predictions.jsonl" | awk '{print $1}')"
 echo "predictions_sha256=$sha" | tee artifacts/val-v79-sha.txt
-echo "FINALIZE_DONE"
+echo "$sha" > "$PKG/predictions.sha256"
+echo "FINALIZE_DONE package=$PKG"
