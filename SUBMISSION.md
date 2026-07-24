@@ -21,5 +21,6 @@ predictions path (JSONL). Image includes Tesseract + `poppler-utils`.
 
 ## Local train score (reference)
 
-Measured **138.00 / 150** on public train (**CFA = 0**). See `MEMO.md`.
-Breakdown: extraction 46.42 · classification 73.81 · calibration 17.77.
+Measured **138.06 / 150** on public train (**CFA = 0**, v79 transfer-scrubbed). See `MEMO.md`.
+Breakdown: extraction 46.42 · classification 73.74 · calibration 17.91.
+Singleton softens / magic conf bands from v77–v78 were removed (one was a false soften).

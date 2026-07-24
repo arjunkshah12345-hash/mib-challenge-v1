@@ -3,8 +3,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHALLENGE_SUBMISSIONS="/Users/arjunkshah21/Downloads/mib-doc-challenge/submissions/arjunkshah12345-hash"
-VAL_RAW="${VAL_RAW:-$ROOT/artifacts/predictions-validation-v71.jsonl}"
-VAL_FINAL="$ROOT/artifacts/predictions-validation-v71.jsonl"
+VAL_RAW="${VAL_RAW:-$ROOT/artifacts/predictions-validation-v79.jsonl}"
+VAL_FINAL="$ROOT/artifacts/predictions-validation-v79.jsonl"
 MANIFEST="/Users/arjunkshah21/Downloads/mib-doc-challenge/data/validation_manifest.csv"
 
 cd "$ROOT"
@@ -46,7 +46,7 @@ PY
 .venv/bin/python3 /Users/arjunkshah21/Downloads/mib-doc-challenge/scripts/validate_submission.py \
   --submission "$VAL_FINAL" \
   --manifest "$MANIFEST" \
-  --require-complete | tee artifacts/validate-val-v71.txt
+  --require-complete | tee artifacts/validate-val-v79.txt
 
 mkdir -p "$CHALLENGE_SUBMISSIONS"
 cp "$VAL_FINAL" "$CHALLENGE_SUBMISSIONS/predictions.jsonl"
@@ -59,12 +59,12 @@ cat > "$CHALLENGE_SUBMISSIONS/SUBMISSION.md" << 'EOF'
 - Public solution repository: https://github.com/arjunkshah12345-hash/mib-challenge-v1
 - Mandatory Dockerfile: https://github.com/arjunkshah12345-hash/mib-challenge-v1/blob/main/Dockerfile
 
-Ship build **v71**: locked public-train score **138.00 / 150**, **CFA = 0**
-(extraction 46.42, classification 73.81, calibration 17.77). Approach,
-failure modes, overfit notes, and next-week plan are in `MEMO.md`.
+Ship build **v79** (transfer-scrubbed): public-train score **138.06 / 150**,
+**CFA = 0** (extraction 46.42, classification 73.74, calibration 17.91).
+n=1 softens / false-soften path removed; structural gates kept. Details in `MEMO.md`.
 
 Validation predictions in this PR: **5,000 / 5,000** records, official
-validator clean (see repo `artifacts/validate-val-v71.txt` after finalize).
+validator clean (see repo `artifacts/validate-val-v79.txt` after finalize).
 
 The solution repository contains the complete offline runtime (Tesseract +
 RapidOCR + `poppler-utils`), hashed `requirements.lock`, and pinned
@@ -76,5 +76,5 @@ https://docs.google.com/forms/d/1ZLkHmTsYd9I87JL1sUyps2rPTe6ohEI_lTZ8Jjts6bw/vie
 EOF
 
 sha="$(shasum -a 256 "$CHALLENGE_SUBMISSIONS/predictions.jsonl" | awk '{print $1}')"
-echo "predictions_sha256=$sha" | tee artifacts/val-v71-sha.txt
+echo "predictions_sha256=$sha" | tee artifacts/val-v79-sha.txt
 echo "FINALIZE_DONE"

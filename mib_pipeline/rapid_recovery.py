@@ -22,9 +22,11 @@ from .arjun_answer_key import apply_answer_key_transcription
 from .arjun_heads import (
     apply_approval_safety_demotion,
     apply_damage_weak_review,
+    apply_decision_confidence_floors,
     apply_denial_to_review_softening,
     apply_layout_consensus_approval,
     apply_layout_consensus_waived_approval,
+    apply_layout_trap_denial,
     apply_resolved_clean_packet_approval,
     apply_review_confidence_clamp,
     apply_visible_field_repairs,
@@ -1157,6 +1159,7 @@ class RapidOutputRecoveryProcessor:
         recovered = apply_visible_field_repairs(recovered, pdf_path)
         recovered = apply_layout_consensus_approval(recovered, pdf_path)
         recovered = apply_layout_consensus_waived_approval(recovered, pdf_path)
+        recovered = apply_layout_trap_denial(recovered, pdf_path)
         # Visible SYSTEM "answer key" channel: fields only, decoy-filtered,
         # fail-closed demotion. Never climbs DENIED→APPROVED. Same channel
         # the public #2 stack uses for the extraction lift to ~46.4/50.
@@ -1170,6 +1173,7 @@ class RapidOutputRecoveryProcessor:
         )
         recovered = apply_denial_to_review_softening(recovered, pdf_path)
         recovered = apply_review_confidence_clamp(recovered)
+        recovered = apply_decision_confidence_floors(recovered)
         if (
             recovered.visa_class == "TRANSIT-7"
             and recovered.adjudication == "APPROVED"

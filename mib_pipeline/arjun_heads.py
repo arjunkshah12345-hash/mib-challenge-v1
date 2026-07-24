@@ -14,8 +14,13 @@ Design rules
 - SYSTEM-span field transcription (separate module) is fields-only with
   decoy filters and fail-closed demotion — never DENIED→APPROVED.
 - Demotion may only move APPROVED → REVIEW/DENIED.
+- Layout trap denial may move REVIEW → DENIED on structural invisible-biohazard
+  mirrors (no train-conf thresholds; no case-ID unlocks).
 - ``fee_status == unknown`` never stays APPROVED (schema default ≠ payment).
 - Measured one-way LC trap cells (visa/purpose[/signature]) fail closed.
+- Singleton softens / magic confidence bands stripped for transfer; fail-closed
+  FRI+transit and signature traps kept (ablating them drops ≤138 or mints
+  wrong APPROVED — see ``TRANSFER_AUDIT.md``).
 - Filler-heavy incomplete assemblies (attestation-first / synthetic-first)
   demote weak APPROVED heads without fee/intake completeness.
 - v31 lesson: Fee-Status-alone / OCR-fee-alone / loose identity spiked CFA.
@@ -57,8 +62,9 @@ _LAYOUT_CONSENSUS_VISAS = frozenset({"DIP-1", "XW-1", "XW-2", "MED-3"})
 _POLICY = PolicyRuleSet()
 
 # MED-3 layout-consensus is purpose-gated: research / translation / cultural
-# exchange are one-way on public train under the shared LC gates. A few
-# (purpose, signature) cells are also one-way; broader MED-3 LC is CFA-heavy.
+# exchange clear under the shared LC gates. Industrial purposes
+# (reactor / field repair) also clear when registry is not last among core
+# I/R/F pages — fee-last-registry assemblies concentrate invisible biohazard.
 _MED3_LC_SAFE_PURPOSES = frozenset(
     {
         "research",
@@ -66,25 +72,74 @@ _MED3_LC_SAFE_PURPOSES = frozenset(
         "cultural exchange",
     }
 )
-_MED3_LC_SAFE_PURPOSE_SIG = frozenset(
+_MED3_LC_INDUSTRIAL_PURPOSES = frozenset(
     {
-        ("field repair", "IRF"),
-        ("reactor maintenance", "FRI"),
-        ("diplomatic", "FIR"),
-        ("medical consult", "FRI"),
-        ("medical consult", "IFR"),
-        ("medical consult", "IRFO"),
+        "reactor maintenance",
+        "field repair",
     }
+)
+# Intentionally empty: purpose×signature MED-3 cells were public-train
+# singletons (n=1) and do not transfer safely. Keep purpose families only.
+_MED3_LC_SAFE_PURPOSE_SIG: frozenset[tuple[str, str]] = frozenset()
+
+# Empty: XW medical-consult signature cells were n=1 on public train.
+_LC_XW_MEDICAL_CONSULT_SIG: frozenset[tuple[str, str, str]] = frozenset()
+
+# Medical consult clears paid LC for MED-3 / XW-2 when Registry is established
+# before close (n=2 family, 0 false). XW-1 is excluded — planetary_embargo
+# collisions under the same gates on public train.
+_LC_MEDICAL_CONSULT_VISAS = frozenset({"MED-3", "XW-2"})
+
+# Paid LC trap denials: purposes outside the MED-3 approve set that still look
+# structurally clean (fee+reg+rnl+low conf) are the invisible-biohazard cluster.
+_MED3_LC_TRAP_DENY_SKIP_PURPOSES = (
+    _MED3_LC_SAFE_PURPOSES
+    | _MED3_LC_INDUSTRIAL_PURPOSES
+    | frozenset({"medical consult"})
 )
 
-# XW medical-consult is blocked under general LC; these purpose×signature
-# cells are measured one-way on public train with paid+$809+registry gates.
-_LC_XW_MEDICAL_CONSULT_SIG: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("XW-1", "medical consult", "RFI"),
-        ("XW-2", "medical consult", "IRF"),
-    }
-)
+DECISION_CONFIDENCE_FLOOR = 0.95
+
+
+def _layout_registry_established_before_close(signature: str) -> bool:
+    """True when Registry is not the last core I/R/F page in assembly order.
+
+    Industrial MED-3 / XW packets with Registry last (FIR / IFR / …R) are the
+    measured invisible-biohazard cluster under purpose expansion. Safe
+    purpose families do not use this gate.
+    """
+
+    core = [(index, kind) for index, kind in enumerate(signature) if kind in "IRF"]
+    if not core or "R" not in signature:
+        return False
+    return core[-1][1] != "R"
+
+
+def _layout_noncore_o_blocks_consensus(
+    signature: str,
+    *,
+    ban_fir_core: bool = False,
+) -> bool:
+    """True when non-core ``O`` pages should block layout-consensus.
+
+    Hard-ban any ``O`` was too blunt: a single trailing filler page after
+    form/biometric/medical pages (``…O``) is 0-FP under shared LC gates on
+    public train (paid + waived). Still block ``RIF`` cores, multi-``O``
+    assemblies, leading/mid ``O``, and (for waived) ``FIR`` cores.
+    """
+
+    if not signature:
+        return False
+    core = "".join(kind for kind in signature if kind in "IRF")
+    if core == "RIF":
+        return True
+    if ban_fir_core and core == "FIR":
+        return True
+    if "O" not in signature:
+        return False
+    if re.fullmatch(r"[IRFBM]+O", signature) and signature.count("O") == 1:
+        return False
+    return True
 
 
 def _pdf_layout_text(pdf_path: Path) -> str:
@@ -522,7 +577,8 @@ def _layout_consensus_trap_cell(
         return True
     if (visa_class, declared_purpose, signature) in _LC_TRAP_VISA_PURPOSE_SIG:
         return True
-    # Existing measured trap: FRI + transit → rescinded_denial with no true LC.
+    # Fail-closed: FRI + transit concentrates invisible rescinded_denial with
+    # no true LC approvals under shared gates (purpose×signature, not case-ID).
     if signature == "FRI" and declared_purpose == "transit":
         return True
     return False
@@ -559,13 +615,12 @@ def apply_layout_consensus_approval(
         return row
     if row.arrival_date in {"1900-01-01", "unknown", ""}:
         return row
-    # Medical consult is a measured LC trap for DIP and for most XW cells.
-    # MED-3 / allowlisted XW medical-consult signatures may still clear below.
-    if row.declared_purpose == "medical consult" and row.visa_class not in {
-        "MED-3",
-        "XW-1",
-        "XW-2",
-    }:
+    # Medical consult is a measured LC trap for DIP / XW-1. MED-3 / XW-2 may
+    # clear under the shared gates when Registry is established before close.
+    if (
+        row.declared_purpose == "medical consult"
+        and row.visa_class not in _LC_MEDICAL_CONSULT_VISAS
+    ):
         return row
     # Field manual: DIP-1 does not require a sponsor (diplomatic exemption).
     # Revoked/missing sponsors remain blocking for XW / MED visas.
@@ -586,44 +641,35 @@ def apply_layout_consensus_approval(
     if _layout_risk_flags(_strip_answer_key_lines(text)):
         return row
     signature = _layout_page_signature(text)
-    # RIF / non-core-page assemblies concentrate silent review traps under LC.
-    # Exception: measured one-way MED-3 medical-consult IRFO cell.
-    if signature == "RIF" or (
-        "O" in signature
-        and not (
-            row.visa_class == "MED-3"
-            and row.declared_purpose == "medical consult"
-            and signature == "IRFO"
-        )
-    ):
+    # RIF / non-trailing multi-O assemblies concentrate silent review traps.
+    if _layout_noncore_o_blocks_consensus(signature):
         return row
     # XW-1 research without a biometric risk channel cannot clear invisible
-    # stamps, except the measured one-way FIR cell on public train.
+    # stamps; keep REVIEW instead of minting a CFA.
     if (
         row.visa_class == "XW-1"
         and row.declared_purpose == "research"
         and not _layout_has_biometric_risk_channel(text)
-        and signature != "FIR"
     ):
         return row
     if _layout_consensus_trap_cell(row.visa_class, row.declared_purpose, signature):
         return row
-    if row.declared_purpose == "medical consult" and row.visa_class in {
-        "XW-1",
-        "XW-2",
-    }:
-        if (
-            row.visa_class,
-            row.declared_purpose,
-            signature,
-        ) not in _LC_XW_MEDICAL_CONSULT_SIG:
+    if row.declared_purpose == "medical consult":
+        if not _layout_registry_established_before_close(signature):
             return row
-    if row.visa_class == "MED-3":
+    elif row.visa_class == "MED-3":
         purpose = row.declared_purpose
-        if (
-            purpose not in _MED3_LC_SAFE_PURPOSES
-            and (purpose, signature) not in _MED3_LC_SAFE_PURPOSE_SIG
+        if purpose in _MED3_LC_SAFE_PURPOSES or (
+            purpose,
+            signature,
+        ) in _MED3_LC_SAFE_PURPOSE_SIG:
+            pass
+        elif (
+            purpose in _MED3_LC_INDUSTRIAL_PURPOSES
+            and _layout_registry_established_before_close(signature)
         ):
+            pass
+        else:
             return row
 
     payload = row.to_dict()
@@ -632,25 +678,42 @@ def apply_layout_consensus_approval(
     return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
 
 
-# Waived-fee layout consensus: identity-free (visa, purpose, signature) cells
-# with visible waiver proof + registry match and no $809. Broader waived LC
-# is CFA-heavy (invisible stamps); keep this allowlist fail-closed.
-_LC_WAIVED_VISA_PURPOSE_SIG: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("DIP-1", "research", "IRF"),
-        ("DIP-1", "research", "FRI"),
-        ("DIP-1", "cultural exchange", "FRI"),
-        ("DIP-1", "cultural exchange", "IFR"),
-        ("DIP-1", "transit", "FIR"),
-        ("DIP-1", "reactor maintenance", "FRI"),
-        ("MED-3", "field repair", "FIR"),
-        ("MED-3", "cultural exchange", "FIR"),
-        ("MED-3", "reactor maintenance", "RFI"),
-        ("XW-1", "diplomatic", "IFR"),
-        ("XW-1", "reactor maintenance", "IRF"),
-        ("XW-2", "translation", "FRI"),
-    }
-)
+# Waived-fee layout consensus: purpose families only (n>=2, 0 false on
+# public train). Per-(visa, purpose, signature) cells were singletons and
+# do not transfer — keep that table empty.
+_LC_WAIVED_VISA_PURPOSE_SIG: frozenset[tuple[str, str, str]] = frozenset()
+
+# Waived-fee purpose families (n>=2 family-level, 0 false under shared gates).
+# DIP/XW: diplomatic-mission purposes. XW/MED-3 also allow industrial purposes
+# when Registry is established before packet close (same gate as paid MED-3
+# industrial). MED-3 does NOT get research/translation/cultural waived — those
+# collide with invisible warrants on public train.
+_LC_WAIVED_PURPOSE_FAMILIES: dict[str, frozenset[str]] = {
+    "DIP-1": frozenset(
+        {"research", "translation", "cultural exchange", "diplomatic"}
+    ),
+    "XW-1": frozenset(
+        {
+            "research",
+            "translation",
+            "cultural exchange",
+            "diplomatic",
+            "reactor maintenance",
+            "field repair",
+        }
+    ),
+    "XW-2": frozenset(
+        {
+            "research",
+            "translation",
+            "cultural exchange",
+            "diplomatic",
+            "reactor maintenance",
+            "field repair",
+        }
+    ),
+    "MED-3": frozenset({"reactor maintenance", "field repair"}),
+}
 
 
 def _layout_fee_waived_proven(text: str) -> bool:
@@ -670,10 +733,12 @@ def apply_layout_consensus_waived_approval(
     row: PredictionRow,
     pdf_path: Path,
 ) -> PredictionRow:
-    """Approve allowlisted waived-fee packets with registry name consensus.
+    """Approve waived-fee packets via purpose families + registry consensus.
 
-    Never uses ``$809`` proof. Only measured one-way (visa, purpose, signature)
-    cells on public train; RIF / ``O`` / visible risk / medical-consult stay closed.
+    Never uses ``$809`` proof. Gates: waived fee proof, registry↔applicant,
+    no visible risk, no RIF/FIR cores / non-trailing multi-O assemblies, no
+    medical-consult. Purpose must be in a multi-support family (not a
+    singleton signature cell).
     """
 
     if row.adjudication != "NEEDS_REVIEW":
@@ -701,6 +766,8 @@ def apply_layout_consensus_waived_approval(
     }:
         return row
 
+    allowed = _LC_WAIVED_PURPOSE_FAMILIES.get(row.visa_class, frozenset())
+
     text = _pdf_layout_text(pdf_path)
     if not text or not _layout_fee_waived_proven(text):
         return row
@@ -709,18 +776,91 @@ def apply_layout_consensus_waived_approval(
     if _layout_risk_flags(_strip_answer_key_lines(text)):
         return row
     signature = _layout_page_signature(text)
-    if signature == "RIF" or "O" in signature:
+    # RIF / FIR cores and non-trailing multi-O assemblies trap invisible
+    # warrants under waived promotions. A single trailing O is allowed.
+    if _layout_noncore_o_blocks_consensus(signature, ban_fir_core=True):
         return row
-    if (
+    if _layout_consensus_trap_cell(row.visa_class, row.declared_purpose, signature):
+        return row
+    if row.declared_purpose not in allowed and (
         row.visa_class,
         row.declared_purpose,
         signature,
     ) not in _LC_WAIVED_VISA_PURPOSE_SIG:
         return row
+    # Industrial waived purposes need Registry established before close —
+    # same invisible-biohazard gate as paid MED-3 industrial LC.
+    if (
+        row.declared_purpose in _MED3_LC_INDUSTRIAL_PURPOSES
+        and not _layout_registry_established_before_close(signature)
+    ):
+        return row
 
     payload = row.to_dict()
     payload["adjudication"] = "APPROVED"
     payload["confidence"] = LAYOUT_CONSENSUS_APPROVAL_CONFIDENCE
+    return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
+
+
+def apply_layout_trap_denial(
+    row: PredictionRow,
+    pdf_path: Path,
+) -> PredictionRow:
+    """Deny REVIEW packets that match measured invisible-biohazard LC traps.
+
+    Complements layout-consensus approval: industrial MED-3 with Registry last,
+    non-approveable MED-3 purposes with Registry established, and XW-2 medical
+    consult with Registry last. All require visible ``$809`` + registry match,
+    paid + none flags, and no RIF / non-core ``O`` pages. Never creates APPROVED.
+    """
+
+    if row.adjudication != "NEEDS_REVIEW":
+        return row
+    if row.fee_status != "paid" or _norm_flags(row.risk_flags) != "none":
+        return row
+
+    text = _pdf_layout_text(pdf_path)
+    if not text or not _layout_fee_paid_proven(text):
+        return row
+    if not _layout_registry_matches_applicant(text):
+        return row
+    signature = _layout_page_signature(text)
+    if signature == "RIF" or "O" in signature:
+        return row
+
+    rnl = _layout_registry_established_before_close(signature)
+    deny = False
+
+    # Mirror of industrial MED-3 approve: Registry-last assemblies deny.
+    if (
+        row.visa_class == "MED-3"
+        and row.declared_purpose in _MED3_LC_INDUSTRIAL_PURPOSES
+        and not rnl
+    ):
+        deny = True
+
+    # Clean-looking MED-3 packets outside the approve purpose set.
+    elif (
+        row.visa_class == "MED-3"
+        and row.declared_purpose not in _MED3_LC_TRAP_DENY_SKIP_PURPOSES
+        and rnl
+    ):
+        deny = True
+
+    # XW-2 medical consult with Registry last (n=2, 0 false on public train).
+    elif (
+        row.visa_class == "XW-2"
+        and row.declared_purpose == "medical consult"
+        and not rnl
+    ):
+        deny = True
+
+    if not deny:
+        return row
+
+    payload = row.to_dict()
+    payload["adjudication"] = "DENIED"
+    payload["confidence"] = DEMOTION_DENIAL_CONFIDENCE
     return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
 
 
@@ -855,13 +995,16 @@ def apply_denial_to_review_softening(
 ) -> PredictionRow:
     """Soften over-hard DENIED → REVIEW on identity-free one-way cells.
 
-    Never creates APPROVED. Measured one-way cells on public train include:
-    DIP-1 illegible / weak waived; MED-3 rescinded; XW-2 waived+illegible;
-    MED-3 synthetic-only waived+illegible; MED-3 synthetic schema-fallback
-    with a real sponsor (not ``SPN-0000``); TRANSIT-7 synthetic xenobotany
-    weak deny; biometric-only MED-3/Wolf schema fallbacks; DIP-WAIVER+
-    attestation weak denials; XW attestation-without-fee weak denials;
-    unsupported Wolf fallback on thin/compact paid packets.
+    Never creates APPROVED. Measured multi-support softens on public train:
+    MED-3 rescinded; XW-2 waived+illegible; MED-3 synthetic schema-fallback
+    with a real sponsor (not ``SPN-0000``); DIP-1 illegible; biometric-only
+    MED-3/Wolf schema fallbacks; DIP-WAIVER+attestation weak denials; XW
+    attestation-without-fee weak denials; unsupported Wolf fallback on
+    thin/compact paid packets.
+
+    Removed for transfer: singleton schema-placeholder waived+illegible,
+    synthetic-only weak deny + schema arrival (also FP on public train),
+    and DIP-1 waived magic confidence band ``0.54–0.56``.
     """
 
     if row.adjudication != "DENIED":
@@ -889,25 +1032,10 @@ def apply_denial_to_review_softening(
         text = _strip_answer_key_lines(_pdf_layout_text(pdf_path))
         synthetic_only = _packet_is_synthetic_only(text)
 
-        # MED-3 schema fallback on synthetic-only packets with waived + illegible:
-        # hard deny over-fires; measured one-way D2R on public train (0 true-DENIED
-        # collisions). Broader synthetic-only MED-3 softens are net-negative.
-        if (
-            row.visa_class == "MED-3"
-            and flags == "illegible_biometrics"
-            and row.fee_status == "waived"
-            and synthetic_only
-        ):
-            payload["adjudication"] = "NEEDS_REVIEW"
-            payload["visa_class"] = "unknown"
-            payload["confidence"] = DEMOTION_REVIEW_CONFIDENCE
-            return PredictionRow.from_mapping(
-                payload, fallback_case_id=row.case_id
-            )
-
         # High-authority MED-3 deny on synthetic-only packets with the schema
         # purpose default and a real sponsor. ``SPN-0000`` / cutout-name rows
-        # keep DENIED (invisible-stamp collisions).
+        # keep DENIED (invisible-stamp collisions). Support n=2, 0 false on
+        # public train — broader synthetic MED-3 softens are net-negative.
         if (
             row.visa_class == "MED-3"
             and flags == "none"
@@ -926,37 +1054,10 @@ def apply_denial_to_review_softening(
                 payload, fallback_case_id=row.case_id
             )
 
-        # TRANSIT-7 on a synthetic-only xenobotany packet with mid confidence
-        # is a schema/visa misfire, not a hard transit deny.
-        if (
-            row.visa_class == "TRANSIT-7"
-            and synthetic_only
-            and row.declared_purpose == "xenobotany"
-            and float(row.confidence) < 0.95
-        ):
-            payload["adjudication"] = "NEEDS_REVIEW"
-            payload["visa_class"] = "unknown"
-            if row.fee_status in {"paid", "unpaid"}:
-                payload["fee_status"] = "unknown"
-            payload["confidence"] = DEMOTION_REVIEW_CONFIDENCE
-            return PredictionRow.from_mapping(
-                payload, fallback_case_id=row.case_id
-            )
-
     if row.visa_class == "DIP-1":
         if flags == "illegible_biometrics":
             payload["adjudication"] = "NEEDS_REVIEW"
             payload["confidence"] = min(float(row.confidence), 0.70)
-            return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
-
-        confidence = float(row.confidence)
-        if (
-            flags == "none"
-            and row.fee_status == "waived"
-            and 0.54 <= confidence <= 0.56
-        ):
-            payload["adjudication"] = "NEEDS_REVIEW"
-            payload["confidence"] = DEMOTION_REVIEW_CONFIDENCE
             return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
 
     if pdf_path is not None and flags == "none":
@@ -1109,6 +1210,21 @@ def apply_review_confidence_clamp(row: PredictionRow) -> PredictionRow:
         return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
     if abs(confidence - 0.70) <= 1e-6 and flags != "none":
         payload["confidence"] = LAYOUT_CONSENSUS_APPROVAL_CONFIDENCE
+        return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
+    return row
+
+
+def apply_decision_confidence_floors(row: PredictionRow) -> PredictionRow:
+    """Floor under-confident APPROVED / DENIED decisions for calibration.
+
+    APPROVED or DENIED below ``DECISION_CONFIDENCE_FLOOR`` (0.95) are lifted.
+    Identity-free; measured Brier lift on public train.
+    """
+
+    confidence = float(row.confidence)
+    if row.adjudication in {"APPROVED", "DENIED"} and confidence < DECISION_CONFIDENCE_FLOOR:
+        payload = row.to_dict()
+        payload["confidence"] = DECISION_CONFIDENCE_FLOOR
         return PredictionRow.from_mapping(payload, fallback_case_id=row.case_id)
     return row
 

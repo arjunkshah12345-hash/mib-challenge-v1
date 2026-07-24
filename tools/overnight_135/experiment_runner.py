@@ -29,7 +29,7 @@ OUT = ROOT / "artifacts" / "overnight_135"
 OUT.mkdir(parents=True, exist_ok=True)
 LEADERBOARD = OUT / "leaderboard.jsonl"
 # Current measured best (LC traps + fee-unknown + filler demotion).
-BASE = ROOT / "artifacts" / "predictions-train-v71.jsonl"
+BASE = ROOT / "artifacts" / "predictions-train-v79.jsonl"
 EVAL = Path("/Users/arjunkshah21/Downloads/mib-doc-challenge/scripts/evaluate.py")
 LABELS = ROOT / "data" / "train_labels.csv"
 

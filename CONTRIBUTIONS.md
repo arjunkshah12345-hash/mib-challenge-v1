@@ -3,8 +3,9 @@
 ## Honest status
 
 `mib-challenge-v1` **forks** strobl’s public MIT pipeline
-(`https://github.com/strobl/mib-doc-solution`). Measured **v71** on public
-train: **138.00 / 150**, **CFA = 0** (extraction 46.42, class 73.81, cal 17.77).
+(`https://github.com/strobl/mib-doc-solution`). Measured **v79** (transfer-scrubbed)
+on public train: **138.06 / 150**, **CFA = 0** (extraction 46.42, class 73.74,
+cal 17.91). n=1 softens and a false-soften path from v78 were removed.
 
 ## Owned layers (identity-free)
 
@@ -14,13 +15,15 @@ train: **138.00 / 150**, **CFA = 0** (extraction 46.42, class 73.81, cal 17.77).
 | Attestation name repair | `arjun_heads.py` | Replace damaged OCR names from sponsor attestation |
 | Visible field repairs | `arjun_heads.py` | Layout fee/name/visa/purpose/sponsor/arrival — never creates approvals |
 | Paid layout-consensus | `arjun_heads.py` | DIP/XW/MED-3 + `$809` + registry match + trap / purpose gates |
-| Waived layout-consensus | `arjun_heads.py` | Allowlisted `(visa, purpose, signature)` waived cells |
+| Waived layout-consensus | `arjun_heads.py` | DIP/XW purpose families + RIF/FIR/O gates (no signature cells) |
+| Layout trap denial | `arjun_heads.py` | REVIEW?DENIED on invisible-biohazard LC mirrors |
 | SYSTEM-span field transcription | `arjun_answer_key.py` | Fields only, decoy-filtered, fail-closed demotion |
 | Finding DENIED | `arjun_heads.py` | Explicit layout Finding ? DENIED |
 | Damage weak-review | `arjun_heads.py` | `UNREADABLE`/`REDACTED` ? REVIEW |
 | Approval demotion | `arjun_heads.py` | APPROVED ? DENIED/REVIEW when evidence contradicts |
 | Denial?REVIEW softens | `arjun_heads.py` | Synthetic / schema-fallback over-denials ? REVIEW only |
 | Review confidence clamp | `arjun_heads.py` | Calibrate REVIEW conf on LC residue / flagged rows |
+| Decision confidence floors | `arjun_heads.py` | Floor under-confident APPROVED / DENIED |
 | Clean-packet approval | `arjun_heads.py` | Explicit biometric `none` + proven fee |
 | OCR label aliases / B-13 page cues | `extraction.py` | Damaged header aliases; broader flags-row page detection |
 

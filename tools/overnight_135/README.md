@@ -1,9 +1,14 @@
 # Overnight / local score tracking
 
-## Current best: **138.00 / CFA=0** (v71)
+## Current ship: **138.06 / CFA=0** (v79, transfer-scrubbed)
 
-Artifacts: `artifacts/predictions-train-v71.jsonl` (gitignored)
+Artifacts: `artifacts/predictions-train-v79.jsonl` (gitignored)
 
-Breakdown: 46.42 / 50 · 73.81 / 80 · 17.77 / 20
+Breakdown: 46.42 / 50 · 73.74 / 80 · 17.91 / 20
 
-See repo `MEMO.md` / `SUBMISSION.md` for the ship narrative.
+SHA256: `05454bddbfd80f507c960d1487c02a3e388e1dd009807938ec15dc766a1aba4a`
+
+v78 (138.20) included n=1 softens + one **false soften** — not shipping.
+v75 (137.18) kept as ablation baseline.
+
+See repo `MEMO.md` for the scrub table.

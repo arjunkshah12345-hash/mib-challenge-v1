@@ -5,7 +5,7 @@ Offline document extraction and adjudication for the
 
 Runtime vendors the public **strobl** render-first pipeline
 (`mib_pipeline/`) with attribution in `ATTRIBUTION.md`. Local train
-reproduction: **138.00 / 150**, **0** catastrophic false approvals.
+reproduction (v79 transfer-scrubbed): **138.06 / 150**, **0** catastrophic false approvals.
 
 ## Pipeline
 
