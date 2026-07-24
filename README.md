@@ -5,7 +5,7 @@ Offline document extraction and adjudication for the
 
 Runtime vendors the public **strobl** render-first pipeline
 (`mib_pipeline/`) with attribution in `ATTRIBUTION.md`. Local train
-reproduction: **~130.26 / 150**, **0** catastrophic false approvals.
+reproduction: **138.00 / 150**, **0** catastrophic false approvals.
 
 ## Pipeline
 
@@ -13,7 +13,7 @@ reproduction: **~130.26 / 150**, **0** catastrophic false approvals.
 2. Tesseract sparse OCR with layout/label recovery + bounded retries
 3. Independent RapidOCR fill for unresolved fields only
 4. Evidence resolution (authority, strike-through, conflicts)
-5. Identity-free adjudication + frozen review recovery heads
+5. Identity-free adjudication + owned post-heads (layout consensus, softens, cal)
 6. Pinned isotonic / output confidence recalibration
 
 ## Local

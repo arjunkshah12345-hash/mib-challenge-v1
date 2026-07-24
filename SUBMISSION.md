@@ -21,4 +21,5 @@ predictions path (JSONL). Image includes Tesseract + `poppler-utils`.
 
 ## Local train score (reference)
 
-Measured **133.83 / 150** on public train (**CFA = 1**). See `MEMO.md`.
+Measured **138.00 / 150** on public train (**CFA = 0**). See `MEMO.md`.
+Breakdown: extraction 46.42 · classification 73.81 · calibration 17.77.

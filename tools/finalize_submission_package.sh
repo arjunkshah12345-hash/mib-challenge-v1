@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# Finalize validation predictions + submissions package when val hits 5000.
+# Finalize validation predictions + challenge submissions package at 5000 rows.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHALLENGE_SUBMISSIONS="/Users/arjunkshah21/Downloads/mib-doc-challenge/submissions/arjunkshah12345-hash"
-VAL_RAW="$ROOT/artifacts/predictions-validation-v36.jsonl"
-VAL_FINAL="$ROOT/artifacts/predictions-validation-v53.jsonl"
+VAL_RAW="${VAL_RAW:-$ROOT/artifacts/predictions-validation-v71.jsonl}"
+VAL_FINAL="$ROOT/artifacts/predictions-validation-v71.jsonl"
 MANIFEST="/Users/arjunkshah21/Downloads/mib-doc-challenge/data/validation_manifest.csv"
-PDF_DIR="$ROOT/data/validation"
 
 cd "$ROOT"
 while true; do
+  if [[ ! -f "$VAL_RAW" ]]; then
+    echo "$(date -Iseconds) waiting for $VAL_RAW"
+    sleep 60
+    continue
+  fi
   n="$(wc -l < "$VAL_RAW" | tr -d ' ')"
   echo "$(date -Iseconds) val_lines=$n"
   if [[ "$n" -ge 5000 ]]; then
@@ -19,34 +23,35 @@ while true; do
 done
 
 # Deduplicate by case_id (keep last)
-.venv/bin/python3 - <<'PY'
+VAL_RAW="$VAL_RAW" VAL_FINAL="$VAL_FINAL" .venv/bin/python3 - <<'PY'
 import json
+import os
 from pathlib import Path
-path = Path("artifacts/predictions-validation-v36.jsonl")
+
+raw = Path(os.environ["VAL_RAW"])
+final = Path(os.environ["VAL_FINAL"])
 by = {}
-for line in path.read_text().splitlines():
+for line in raw.read_text().splitlines():
     if not line.strip():
         continue
     row = json.loads(line)
     by[row["case_id"]] = line
 lines = [by[k] for k in sorted(by)]
-path.write_text("\n".join(lines) + "\n")
+final.write_text("\n".join(lines) + "\n")
 print(f"unique={len(lines)}")
+if len(lines) != 5000:
+    raise SystemExit(f"expected 5000 unique case ids, got {len(lines)}")
 PY
-
-.venv/bin/python3 tools/postprocess_owned_heads.py \
-  "$PDF_DIR" "$VAL_RAW" "$VAL_FINAL"
 
 .venv/bin/python3 /Users/arjunkshah21/Downloads/mib-doc-challenge/scripts/validate_submission.py \
   --submission "$VAL_FINAL" \
   --manifest "$MANIFEST" \
-  --require-complete | tee artifacts/validate-val-v53.txt
+  --require-complete | tee artifacts/validate-val-v71.txt
 
+mkdir -p "$CHALLENGE_SUBMISSIONS"
 cp "$VAL_FINAL" "$CHALLENGE_SUBMISSIONS/predictions.jsonl"
 cp "$ROOT/MEMO.md" "$CHALLENGE_SUBMISSIONS/MEMO.md"
-cp "$ROOT/SUBMISSION.md" "$CHALLENGE_SUBMISSIONS/SUBMISSION.md"
 
-# Prefer the challenge-folder SUBMISSION.md with form link
 cat > "$CHALLENGE_SUBMISSIONS/SUBMISSION.md" << 'EOF'
 # Submission
 
@@ -54,12 +59,12 @@ cat > "$CHALLENGE_SUBMISSIONS/SUBMISSION.md" << 'EOF'
 - Public solution repository: https://github.com/arjunkshah12345-hash/mib-challenge-v1
 - Mandatory Dockerfile: https://github.com/arjunkshah12345-hash/mib-challenge-v1/blob/main/Dockerfile
 
-Ship build **v53**: locked public-train score **133.83 / 150**, **CFA = 1**
-(extraction 46.41, classification 70.38, calibration 17.04). Approach,
-failure modes, and next-week plan are in `MEMO.md`.
+Ship build **v71**: locked public-train score **138.00 / 150**, **CFA = 0**
+(extraction 46.42, classification 73.81, calibration 17.77). Approach,
+failure modes, overfit notes, and next-week plan are in `MEMO.md`.
 
 Validation predictions in this PR: **5,000 / 5,000** records, official
-validator clean (see repo `artifacts/validate-val-v53.txt` after finalize).
+validator clean (see repo `artifacts/validate-val-v71.txt` after finalize).
 
 The solution repository contains the complete offline runtime (Tesseract +
 RapidOCR + `poppler-utils`), hashed `requirements.lock`, and pinned
@@ -71,5 +76,5 @@ https://docs.google.com/forms/d/1ZLkHmTsYd9I87JL1sUyps2rPTe6ohEI_lTZ8Jjts6bw/vie
 EOF
 
 sha="$(shasum -a 256 "$CHALLENGE_SUBMISSIONS/predictions.jsonl" | awk '{print $1}')"
-echo "predictions_sha256=$sha" | tee artifacts/val-v53-sha.txt
+echo "predictions_sha256=$sha" | tee artifacts/val-v71-sha.txt
 echo "FINALIZE_DONE"
